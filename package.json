@@ -1,0 +1,66 @@
+{
+  "name": "opengradient-ai-provider",
+  "version": "0.0.1",
+  "description": "Vercel AI SDK provider for OpenGradient TEE LLM (verifiable inference)",
+  "author": "Gilberts Ahumada <gilbertsahumada@gmail.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist/**"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "^3.0.0",
+    "opengradient-sdk": "^2.1.0"
+  },
+  "peerDependencies": {
+    "ai": "^6.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "ai",
+    "ai-sdk",
+    "vercel",
+    "opengradient",
+    "tee",
+    "llm",
+    "verifiable-inference",
+    "provider"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
