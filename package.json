@@ -4,6 +4,17 @@
   "description": "Vercel AI SDK provider for OpenGradient TEE LLM (verifiable inference)",
   "author": "Gilberts Ahumada <gilbertsahumada@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gilbertsahumada/opengradient-ai-provider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gilbertsahumada/opengradient-ai-provider/issues"
+  },
+  "homepage": "https://github.com/gilbertsahumada/opengradient-ai-provider#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -29,7 +40,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@ai-sdk/provider": "^3.0.0",
