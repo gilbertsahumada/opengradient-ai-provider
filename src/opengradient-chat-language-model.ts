@@ -148,6 +148,15 @@ const NETWORK_ERROR_CODES = new Set([
 ]);
 
 /**
+ * The SDK reports connection-level failures (the fetch threw, or a registry
+ * refresh failed) as a status-less `OpenGradientError` whose message starts with
+ * "TEE LLM request failed" / "TEE LLM stream failed". Status-less errors raised
+ * *after* a paid request (e.g. "Invalid response", "empty body") or from config
+ * validation do not match this prefix, so they never trigger a re-pay.
+ */
+const SDK_CONNECTION_FAILURE = /^TEE LLM (request|stream) failed/;
+
+/**
  * Whether a failed request should fail over to the next TEE endpoint. Because
  * each attempt can spend funds, this is a strict allow-list of genuine
  * connection failures — never a reachable TEE's rejection (an `OpenGradientError`
@@ -157,6 +166,12 @@ const NETWORK_ERROR_CODES = new Set([
 function isConnectionError(error: unknown): boolean {
   if (error instanceof OpenGradientError && error.statusCode !== undefined) {
     return false;
+  }
+  if (
+    error instanceof OpenGradientError &&
+    SDK_CONNECTION_FAILURE.test(error.message)
+  ) {
+    return true;
   }
   const e = error as { code?: string; cause?: { code?: string } };
   if (e.code && NETWORK_ERROR_CODES.has(e.code)) return true;
@@ -596,11 +611,8 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
       },
       async cancel() {
         cancelled = true;
-        const stopped = Promise.resolve(activeIterator?.return?.()).catch(
-          () => {},
-        );
+        void Promise.resolve(activeIterator?.return?.()).catch(() => {});
         await close();
-        await stopped;
       },
     });
 

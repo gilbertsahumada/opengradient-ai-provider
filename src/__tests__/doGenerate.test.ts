@@ -316,6 +316,77 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
     expect(seen).toEqual(['https://a']);
   });
 
+  it('fails over on the SDK status-less connection wrapper error', async () => {
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        if (endpoint === 'https://a') {
+          return {
+            llm: {
+              chat: vi
+                .fn()
+                .mockRejectedValue(
+                  new OpenGradientError(
+                    'TEE LLM request failed: TypeError: fetch failed',
+                  ),
+                ) as never,
+            },
+            close: vi.fn().mockResolvedValue(undefined) as never,
+          };
+        }
+        return {
+          llm: {
+            chat: vi.fn().mockResolvedValue({
+              finishReason: 'stop',
+              chatOutput: { role: 'assistant', content: 'from B' },
+            }) as never,
+          },
+          close: vi.fn().mockResolvedValue(undefined) as never,
+        };
+      },
+    });
+
+    const result = await m.doGenerate(baseCall);
+
+    expect(seen).toEqual(['https://a', 'https://b']);
+    expect(result.content).toEqual([{ type: 'text', text: 'from B' }]);
+  });
+
+  it('does not fail over on a status-less post-payment error', async () => {
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        return {
+          llm: {
+            chat: vi
+              .fn()
+              .mockRejectedValue(
+                new OpenGradientError(
+                  "Invalid response: 'choices' missing or empty in {}",
+                ),
+              ) as never,
+          },
+          close: vi.fn().mockResolvedValue(undefined) as never,
+        };
+      },
+    });
+
+    await expect(m.doGenerate(baseCall)).rejects.toMatchObject({
+      name: 'AI_APICallError',
+    });
+    expect(seen).toEqual(['https://a']);
+  });
+
   it('preserves a successful result when close() rejects', async () => {
     const client: OpenGradientClientLike = {
       llm: {

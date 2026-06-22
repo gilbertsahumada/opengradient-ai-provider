@@ -122,7 +122,6 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
           },
         ],
         isFinal: true,
-        usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
       }),
     ]);
 
@@ -156,6 +155,8 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
       unified: 'tool-calls',
       raw: 'tool_calls',
     });
+    // The SDK's degraded tools-stream omits usage; the provider reports none.
+    expect(finish.usage.outputTokens.total).toBeUndefined();
   });
 
   it('fails over to the next endpoint when the first connection fails', async () => {
@@ -306,6 +307,30 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves cancel() even if iterator.return() never resolves', async () => {
+    const iterator: AsyncIterator<StreamChunk> = {
+      next: () => new Promise<IteratorResult<StreamChunk>>(() => {}),
+      return: (() =>
+        new Promise<IteratorResult<StreamChunk>>(() => {})) as never,
+    };
+    const client: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: () => iterator,
+        }) as never,
+      },
+      close: vi.fn().mockResolvedValue(undefined) as never,
+    };
+
+    const { stream } = await model(client).doStream(baseCall);
+    const settled = await Promise.race([
+      stream.cancel().then(() => 'cancelled'),
+      new Promise((r) => setTimeout(() => r('timeout'), 100)),
+    ]);
+
+    expect(settled).toBe('cancelled');
   });
 
   it('emits an error part when client construction fails', async () => {
