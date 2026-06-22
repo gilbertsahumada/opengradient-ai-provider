@@ -2,16 +2,17 @@ import type {
   LanguageModelV3,
   LanguageModelV3CallOptions,
   LanguageModelV3GenerateResult,
+  LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
   SharedV3Warning,
 } from '@ai-sdk/provider';
-import { UnsupportedFunctionalityError } from '@ai-sdk/provider';
 import {
   Client,
   TEE_LLM,
   X402SettlementMode,
   type ChatParams,
   type ClientConfig,
+  type StreamChunk,
   type TextGenerationOutput,
 } from 'opengradient-sdk';
 import { convertToOpenGradientMessages } from './convert-to-opengradient-messages';
@@ -36,6 +37,7 @@ export interface OpenGradientClientLike {
     chat(
       params: ChatParams & { stream?: false },
     ): Promise<TextGenerationOutput>;
+    chat(params: ChatParams & { stream: true }): AsyncIterable<StreamChunk>;
   };
   close(): Promise<void>;
 }
@@ -223,35 +225,113 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   }
 
   async doStream(
-    _options: LanguageModelV3CallOptions,
+    options: LanguageModelV3CallOptions,
   ): Promise<LanguageModelV3StreamResult> {
-    throw new UnsupportedFunctionalityError({
-      functionality: 'not-implemented-yet',
+    const { args, warnings } = this.getArgs(options);
+    const client = this.createClient(this.config.settings);
+    const llmServerUrl = this.config.settings.llmServerUrl;
+
+    let closed = false;
+    const close = async () => {
+      if (closed) return;
+      closed = true;
+      await client.close();
+    };
+
+    let textId: string | undefined;
+
+    const stream = new ReadableStream<LanguageModelV3StreamPart>({
+      async start(controller) {
+        controller.enqueue({ type: 'stream-start', warnings });
+        try {
+          // Streaming + tools degrades upstream to a single non-streamed chunk;
+          // synthesizing tool parts from it is handled in Phase 4.
+          for await (const chunk of client.llm.chat({ ...args, stream: true })) {
+            if (options.includeRawChunks) {
+              controller.enqueue({ type: 'raw', rawValue: chunk });
+            }
+
+            const choice = chunk.choices?.[0];
+            const delta = choice?.delta?.content;
+            if (delta) {
+              if (textId === undefined) {
+                textId = crypto.randomUUID();
+                controller.enqueue({ type: 'text-start', id: textId });
+              }
+              controller.enqueue({ type: 'text-delta', id: textId, delta });
+            }
+
+            if (chunk.isFinal) {
+              if (textId !== undefined) {
+                controller.enqueue({ type: 'text-end', id: textId });
+              }
+              controller.enqueue({
+                type: 'finish',
+                finishReason: mapOpenGradientFinishReason(
+                  choice?.finish_reason ?? undefined,
+                ),
+                usage: mapOpenGradientUsage(chunk.usage),
+                providerMetadata: {
+                  opengradient: pickDefinedStrings(
+                    chunk,
+                    STREAM_TEE_METADATA_FIELDS,
+                  ),
+                },
+              });
+            }
+          }
+        } catch (error) {
+          controller.enqueue({
+            type: 'error',
+            error: mapOpenGradientError(error, args, llmServerUrl),
+          });
+        } finally {
+          await close();
+          controller.close();
+        }
+      },
+      cancel: close,
     });
+
+    return { stream, request: { body: args } };
   }
 }
 
-const TEE_METADATA_FIELDS = [
+/** TEE attestation + settlement fields present on a streaming final chunk. */
+const STREAM_TEE_METADATA_FIELDS = [
   'teeSignature',
   'teeId',
   'teeTimestamp',
   'teeEndpoint',
   'teePaymentAddress',
-  'paymentHash',
   'dataSettlementTransactionHash',
   'dataSettlementBlobId',
 ] as const;
+
+/** Non-streaming output adds `paymentHash` (absent from `StreamChunk`). */
+const TEE_METADATA_FIELDS = [
+  ...STREAM_TEE_METADATA_FIELDS,
+  'paymentHash',
+] as const;
+
+/** Collect the defined string fields from `source` as provider metadata. */
+function pickDefinedStrings<T>(
+  source: T,
+  fields: readonly (keyof T)[],
+): Record<string, string> {
+  const metadata: Record<string, string> = {};
+  for (const field of fields) {
+    const value = source[field];
+    if (typeof value === 'string') {
+      metadata[field as string] = value;
+    }
+  }
+  return metadata;
+}
 
 /** Surface TEE attestation + payment/settlement data as provider metadata. */
 function collectTeeMetadata(
   result: TextGenerationOutput,
 ): Record<string, string> {
-  const metadata: Record<string, string> = {};
-  for (const field of TEE_METADATA_FIELDS) {
-    const value = result[field];
-    if (value !== undefined) {
-      metadata[field] = value;
-    }
-  }
-  return metadata;
+  return pickDefinedStrings(result, TEE_METADATA_FIELDS);
 }
