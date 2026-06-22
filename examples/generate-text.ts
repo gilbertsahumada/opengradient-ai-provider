@@ -9,16 +9,19 @@
  *   npx tsx --env-file=.env examples/generate-text.ts
  *
  * Note: the published TS SDK's default registry currently has no active TEE, so
- * we pass `llmServerUrl`. Override with OPENGRADIENT_LLM_SERVER_URL; the default
- * below is an endpoint discovered from the current on-chain registry (may rotate).
+ * we pass `llmServerUrl`. The list below is the set of active TEEs discovered
+ * from the current on-chain registry; the provider fails over across them in
+ * order. IPs rotate — override via OPENGRADIENT_LLM_SERVER_URL (comma-separated)
+ * or re-discover if all fail. See docs/TS-SDK-REGISTRY-FIX.md.
  */
 import { generateText } from 'ai';
 import { createOpenGradient } from '../src/index';
+import { TEE_ENDPOINTS } from './shared';
 
 const opengradient = createOpenGradient({
   privateKey: process.env.OPENGRADIENT_PRIVATE_KEY,
   llmServerUrl:
-    process.env.OPENGRADIENT_LLM_SERVER_URL ?? 'https://13.59.207.188',
+    process.env.OPENGRADIENT_LLM_SERVER_URL?.split(',') ?? TEE_ENDPOINTS,
 });
 
 const prompt =

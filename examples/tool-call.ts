@@ -14,11 +14,12 @@
  */
 import { generateText, streamText, tool, jsonSchema } from 'ai';
 import { createOpenGradient } from '../src/index';
+import { TEE_ENDPOINTS } from './shared';
 
 const opengradient = createOpenGradient({
   privateKey: process.env.OPENGRADIENT_PRIVATE_KEY,
   llmServerUrl:
-    process.env.OPENGRADIENT_LLM_SERVER_URL ?? 'https://13.59.207.188',
+    process.env.OPENGRADIENT_LLM_SERVER_URL?.split(',') ?? TEE_ENDPOINTS,
 });
 
 const tools = {
