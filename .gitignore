@@ -14,6 +14,7 @@
 /preflight
 /.vscode
 /.idea
+/.claude
 .DS_Store
 *.log
 *.tmp
