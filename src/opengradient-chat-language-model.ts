@@ -499,7 +499,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
             break;
           } catch (error) {
             activeIterator = undefined;
-            if (cancelled) break; // cancel() already closed the client
+            if (cancelled) break;
             if (activeClient) {
               await safeClose(activeClient);
               activeClient = undefined;
