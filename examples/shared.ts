@@ -5,8 +5,9 @@
 /**
  * Active LLM-proxy TEEs from the OpenGradient registry
  * 0x703cB174AEadB35D611858369B4b1111dC9Abda6 (as of 2026-06-22), tried in order
- * with failover (the published SDK's default registry is stale — see
- * docs/TS-SDK-REGISTRY-FIX.md). IPs rotate — re-query the registry if all become
+ * with failover. The published SDK's default registry currently returns no active
+ * TEEs, so endpoints are passed explicitly here (this bypasses on-chain TLS
+ * pinning and is interim). IPs rotate — re-query the registry if all become
  * unreachable (preflight/check-payment-path.ts does this).
  */
 export const TEE_ENDPOINTS = [

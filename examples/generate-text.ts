@@ -12,7 +12,7 @@
  * we pass `llmServerUrl`. The list below is the set of active TEEs discovered
  * from the current on-chain registry; the provider fails over across them in
  * order. IPs rotate — override via OPENGRADIENT_LLM_SERVER_URL (comma-separated)
- * or re-discover if all fail. See docs/TS-SDK-REGISTRY-FIX.md.
+ * or re-discover if all fail.
  */
 import { generateText } from 'ai';
 import { createOpenGradient } from '../src/index';
@@ -38,6 +38,9 @@ console.log('\n──────── LLM RESPONSE ────────');
 console.log(text);
 console.log('\n──────── META ────────');
 console.log('finishReason:', finishReason);
-console.log('tokens:      ', `${usage.inputTokens} in / ${usage.outputTokens} out`);
+console.log(
+  'tokens:      ',
+  `${usage.inputTokens} in / ${usage.outputTokens} out`,
+);
 console.log('teeSignature:', providerMetadata?.opengradient?.teeSignature);
 console.log('teeEndpoint: ', providerMetadata?.opengradient?.teeEndpoint);
