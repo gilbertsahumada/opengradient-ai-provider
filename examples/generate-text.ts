@@ -21,12 +21,20 @@ const opengradient = createOpenGradient({
     process.env.OPENGRADIENT_LLM_SERVER_URL ?? 'https://13.59.207.188',
 });
 
+const prompt =
+  'In two sentences, explain what a Trusted Execution Environment (TEE) is and why it matters for verifiable AI.';
+
 const { text, usage, finishReason, providerMetadata } = await generateText({
   model: opengradient('anthropic/claude-haiku-4-5'),
-  prompt: 'Say hi in 5 words.',
+  prompt,
 });
 
-console.log('text:           ', text);
-console.log('finishReason:   ', finishReason);
-console.log('usage:          ', usage);
-console.log('providerMetadata:', providerMetadata?.opengradient);
+console.log('\n──────── PROMPT ────────');
+console.log(prompt);
+console.log('\n──────── LLM RESPONSE ────────');
+console.log(text);
+console.log('\n──────── META ────────');
+console.log('finishReason:', finishReason);
+console.log('tokens:      ', `${usage.inputTokens} in / ${usage.outputTokens} out`);
+console.log('teeSignature:', providerMetadata?.opengradient?.teeSignature);
+console.log('teeEndpoint: ', providerMetadata?.opengradient?.teeEndpoint);

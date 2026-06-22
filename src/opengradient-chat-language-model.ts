@@ -73,17 +73,16 @@ const defaultCreateClient = (
 
 const KNOWN_MODEL_IDS = new Set<string>(Object.values(TEE_LLM));
 
-function mapSettlementMode(mode: string | undefined): X402SettlementMode | undefined {
-  switch (mode) {
-    case 'private':
-      return X402SettlementMode.PRIVATE;
-    case 'batch':
-      return X402SettlementMode.BATCH_HASHED;
-    case 'individual':
-      return X402SettlementMode.INDIVIDUAL_FULL;
-    default:
-      return undefined;
-  }
+const SETTLEMENT_MODES: Record<string, X402SettlementMode> = {
+  private: X402SettlementMode.PRIVATE,
+  batch: X402SettlementMode.BATCH_HASHED,
+  individual: X402SettlementMode.INDIVIDUAL_FULL,
+};
+
+function mapSettlementMode(
+  mode: string | undefined,
+): X402SettlementMode | undefined {
+  return mode ? SETTLEMENT_MODES[mode] : undefined;
 }
 
 /**
@@ -104,10 +103,14 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   readonly supportedUrls: Record<string, RegExp[]> = {};
 
   private readonly config: OpenGradientChatConfig;
+  private readonly createClient: (
+    settings: OpenGradientProviderSettings,
+  ) => OpenGradientClientLike;
 
   constructor(modelId: OpenGradientChatModelId, config: OpenGradientChatConfig) {
     this.modelId = modelId;
     this.config = config;
+    this.createClient = config.createClient ?? defaultCreateClient;
   }
 
   /** Build SDK `ChatParams` from V3 call options, collecting warnings. */
@@ -198,8 +201,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
     options: LanguageModelV3CallOptions,
   ): Promise<LanguageModelV3GenerateResult> {
     const { args, warnings } = this.getArgs(options);
-    const createClient = this.config.createClient ?? defaultCreateClient;
-    const client = createClient(this.config.settings);
+    const client = this.createClient(this.config.settings);
 
     let result: TextGenerationOutput;
     try {
@@ -229,24 +231,26 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   }
 }
 
+const TEE_METADATA_FIELDS = [
+  'teeSignature',
+  'teeId',
+  'teeTimestamp',
+  'teeEndpoint',
+  'teePaymentAddress',
+  'paymentHash',
+  'dataSettlementTransactionHash',
+  'dataSettlementBlobId',
+] as const;
+
 /** Surface TEE attestation + payment/settlement data as provider metadata. */
 function collectTeeMetadata(
   result: TextGenerationOutput,
 ): Record<string, string> {
-  const fields: Record<string, string | undefined> = {
-    teeSignature: result.teeSignature,
-    teeId: result.teeId,
-    teeTimestamp: result.teeTimestamp,
-    teeEndpoint: result.teeEndpoint,
-    teePaymentAddress: result.teePaymentAddress,
-    paymentHash: result.paymentHash,
-    dataSettlementTransactionHash: result.dataSettlementTransactionHash,
-    dataSettlementBlobId: result.dataSettlementBlobId,
-  };
   const metadata: Record<string, string> = {};
-  for (const [key, value] of Object.entries(fields)) {
+  for (const field of TEE_METADATA_FIELDS) {
+    const value = result[field];
     if (value !== undefined) {
-      metadata[key] = value;
+      metadata[field] = value;
     }
   }
   return metadata;
