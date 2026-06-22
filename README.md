@@ -164,6 +164,31 @@ const account = privateKeyToAccount(
 await ensureOpgApproval(account, 5, 100);
 ```
 
+### Preflight — check your setup (read-only)
+
+`checkOpenGradientSetup` inspects the wallet's OPG balance, ETH-for-gas, and Permit2
+allowance on Base so you can fix funding/approval **before** paying. It sends no
+transactions:
+
+```ts
+import { checkOpenGradientSetup } from 'opengradient-ai-provider';
+import { privateKeyToAccount } from 'viem/accounts';
+
+const account = privateKeyToAccount(
+  process.env.OPENGRADIENT_PRIVATE_KEY as `0x${string}`,
+);
+
+const report = await checkOpenGradientSetup(account);
+if (!report.ready) {
+  console.error(report.issues.join('\n'));
+  // e.g. "Permit2 allowance for OPG is 0. Run ensureOpgApproval(account, 5, 100)…"
+}
+```
+
+It accepts a viem `Account` or a plain address, and an optional `{ rpcUrl }` for a
+custom **Base** RPC. Inference errors are likewise diagnostic — a `402` tells you to
+check OPG funds and allowance, not just that payment failed.
+
 ## Limitations
 
 - **No multimodal:** file / image / audio parts are dropped with a warning (text only).
