@@ -21,6 +21,9 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
+      // TypeScript already resolves undefined identifiers; the core rule has no
+      // type info and false-flags Node globals (console, process, ...).
+      'no-undef': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'error',

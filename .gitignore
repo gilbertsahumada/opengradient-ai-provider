@@ -9,6 +9,9 @@
 .env.local
 .env.*.local
 /coverage
+
+# Throwaway local preflight / payment-path scripts (kept local for reuse)
+/preflight
 /.vscode
 /.idea
 .DS_Store
