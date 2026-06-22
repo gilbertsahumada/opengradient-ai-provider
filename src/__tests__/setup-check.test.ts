@@ -84,6 +84,28 @@ describe('checkOpenGradientSetup', () => {
 
     expect(report.ready).toBe(false);
     expect(report.issues.some((i) => i.includes('need ≥ 5'))).toBe(true);
+    // Balance clears the approval minimum, so no balance warning.
+    expect(report.issues.some((i) => i.includes('below the'))).toBe(false);
+  });
+
+  it('warns that a low OPG balance will make the approval call fail', async () => {
+    const report = await checkOpenGradientSetup(ADDRESS, {
+      publicClient: readClient({
+        opg: opg('1'),
+        eth: opg('0.01'),
+        allowance: 0n,
+      }),
+    });
+
+    expect(report.ready).toBe(false);
+    expect(report.issues.some((i) => i.includes('ensureOpgApproval'))).toBe(
+      true,
+    );
+    expect(
+      report.issues.some(
+        (i) => i.includes('below the') && i.includes('approval'),
+      ),
+    ).toBe(true);
   });
 
   it('honors a custom minAllowance', async () => {
@@ -98,6 +120,23 @@ describe('checkOpenGradientSetup', () => {
 
     expect(report.ready).toBe(true);
     expect(report.issues).toEqual([]);
+  });
+
+  it('reflects a custom minAllowance in the remediation advice', async () => {
+    const report = await checkOpenGradientSetup(ADDRESS, {
+      minAllowance: opg('10'),
+      publicClient: readClient({
+        opg: opg('100'),
+        eth: opg('0.01'),
+        allowance: opg('5'),
+      }),
+    });
+
+    expect(report.ready).toBe(false);
+    const allowanceIssue = report.issues.find((i) => i.includes('allowance'));
+    expect(allowanceIssue).toContain('need ≥ 10');
+    expect(allowanceIssue).toContain('ensureOpgApproval(account, 10');
+    expect(allowanceIssue).not.toContain('account, 5');
   });
 
   it('also flags missing gas when the allowance is low and there is no ETH', async () => {

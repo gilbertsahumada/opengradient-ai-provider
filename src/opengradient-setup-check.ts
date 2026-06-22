@@ -130,12 +130,20 @@ export async function checkOpenGradientSetup(
       `No OPG on Base for ${address}. Fund the wallet before inference — see ${DEFAULT_HUB_SIGNUP_URL}.`,
     );
   }
+  const minOpg = formatUnits(minAllowance, OPG_DECIMALS);
   if (permit2Allowance < minAllowance) {
     issues.push(
       `Permit2 allowance for OPG is ${formatUnits(permit2Allowance, OPG_DECIMALS)} OPG ` +
-        `(need ≥ ${formatUnits(minAllowance, OPG_DECIMALS)}). ` +
-        'Run `ensureOpgApproval(account, 5, 100)` once before paying.',
+        `(need ≥ ${minOpg}). ` +
+        `Run \`ensureOpgApproval(account, ${minOpg})\` once before paying.`,
     );
+    if (opgBalance > 0n && opgBalance < minAllowance) {
+      issues.push(
+        `OPG balance is ${formatUnits(opgBalance, OPG_DECIMALS)} OPG, below the ` +
+          `${minOpg} OPG that the approval needs — ` +
+          'fund more OPG before approving or `ensureOpgApproval` will fail.',
+      );
+    }
     if (ethBalance === 0n) {
       issues.push(
         'No ETH on Base for gas — the one-time Permit2 approval tx will fail. Fund the wallet with a little ETH.',
