@@ -42,9 +42,8 @@ export function createOpenGradient(
 ): OpenGradientProvider {
   const config: OpenGradientChatConfig = { settings };
 
-  const createChatModel = (
-    modelId: OpenGradientChatModelId,
-  ): LanguageModelV3 => new OpenGradientChatLanguageModel(modelId, config);
+  const createChatModel = (modelId: OpenGradientChatModelId): LanguageModelV3 =>
+    new OpenGradientChatLanguageModel(modelId, config);
 
   const provider = function (modelId: OpenGradientChatModelId) {
     if (new.target) {
@@ -55,6 +54,8 @@ export function createOpenGradient(
     return createChatModel(modelId);
   } as OpenGradientProvider;
 
+  // Object.assign sets the `readonly` specificationVersion without a cast.
+  Object.assign(provider, { specificationVersion: 'v3' });
   provider.languageModel = createChatModel;
   provider.chat = createChatModel;
 

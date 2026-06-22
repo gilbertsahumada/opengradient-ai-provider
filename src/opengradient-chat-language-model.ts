@@ -60,11 +60,12 @@ export interface OpenGradientChatConfig {
 }
 
 /** Resolve provider settings into an SDK `ClientConfig` for one TEE endpoint. */
-function resolveClientConfig(
+export function resolveClientConfig(
   settings: OpenGradientProviderSettings,
   llmServerUrl: string | undefined,
 ): ClientConfig {
-  const privateKey = settings.privateKey ?? process.env.OPENGRADIENT_PRIVATE_KEY;
+  const privateKey =
+    settings.privateKey ?? process.env.OPENGRADIENT_PRIVATE_KEY;
   if (!privateKey) {
     throw new Error(
       'OpenGradient: privateKey missing — pass it to createOpenGradient(...) or set OPENGRADIENT_PRIVATE_KEY',
@@ -74,9 +75,23 @@ function resolveClientConfig(
     privateKey,
     rpcUrl: settings.rpcUrl ?? process.env.OPENGRADIENT_RPC_URL,
     llmServerUrl,
-    maxPaymentValue: settings.maxPaymentValue,
-    teeRegistryAddress: settings.teeRegistryAddress,
+    maxPaymentValue:
+      settings.maxPaymentValue ??
+      parseMaxPayment(process.env.OPENGRADIENT_MAX_PAYMENT_VALUE),
+    teeRegistryAddress:
+      settings.teeRegistryAddress ??
+      process.env.OPENGRADIENT_TEE_REGISTRY_ADDRESS,
   };
+}
+
+/** Parse `OPENGRADIENT_MAX_PAYMENT_VALUE` to a bigint; ignore a malformed value. */
+function parseMaxPayment(raw: string | undefined): bigint | undefined {
+  if (!raw) return undefined;
+  try {
+    return BigInt(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 const defaultCreateClient = (
@@ -121,14 +136,54 @@ function resolveEndpoints(
   return [undefined];
 }
 
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EPIPE',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
 /**
- * Whether a failed request should fail over to the next TEE endpoint. Only
- * connection-level failures qualify: a reachable TEE that rejects the request
- * throws an `OpenGradientError` with an HTTP `statusCode` — retrying that on
- * another TEE would fail the same way and risks paying twice.
+ * Whether a failed request should fail over to the next TEE endpoint. Because
+ * each attempt can spend funds, this is a strict allow-list of genuine
+ * connection failures — never a reachable TEE's rejection (an `OpenGradientError`
+ * with an HTTP `statusCode`) nor a local config/mapping bug, which would fail the
+ * same way on the next TEE and risk paying twice.
  */
 function isConnectionError(error: unknown): boolean {
-  return !(error instanceof OpenGradientError && error.statusCode !== undefined);
+  if (error instanceof OpenGradientError && error.statusCode !== undefined) {
+    return false;
+  }
+  const e = error as { code?: string; cause?: { code?: string } };
+  if (e.code && NETWORK_ERROR_CODES.has(e.code)) return true;
+  if (e.cause?.code && NETWORK_ERROR_CODES.has(e.cause.code)) return true;
+  return (
+    error instanceof TypeError &&
+    error.message.toLowerCase().includes('fetch failed')
+  );
+}
+
+/** Close a client, swallowing cleanup errors so they never mask the result/error. */
+async function safeClose(client: OpenGradientClientLike): Promise<void> {
+  try {
+    await client.close();
+  } catch {
+    /* empty */
+  }
+}
+
+/**
+ * Bail out before building a client (which would spend funds) if the request is
+ * already aborted.
+ */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new Error('OpenGradient: request aborted');
+  }
 }
 
 /**
@@ -231,7 +286,10 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
     llmServerUrl: string | undefined,
   ) => OpenGradientClientLike;
 
-  constructor(modelId: OpenGradientChatModelId, config: OpenGradientChatConfig) {
+  constructor(
+    modelId: OpenGradientChatModelId,
+    config: OpenGradientChatConfig,
+  ) {
     this.modelId = modelId;
     this.config = config;
     this.createClient = config.createClient ?? defaultCreateClient;
@@ -242,9 +300,10 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
     args: ChatParams;
     warnings: SharedV3Warning[];
   } {
-    const { messages, warnings } = convertToOpenGradientMessages(options.prompt);
+    const { messages, warnings } = convertToOpenGradientMessages(
+      options.prompt,
+    );
 
-    // Settings the SDK chat path cannot honor.
     const unsupported: Array<[string, unknown]> = [
       ['topP', options.topP],
       ['topK', options.topK],
@@ -258,8 +317,6 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
         warnings.push({ type: 'unsupported', feature });
       }
     }
-    // The AI SDK forwards a `headers` object on every call (often empty), so
-    // only warn when the caller actually set headers.
     if (options.headers && Object.keys(options.headers).length > 0) {
       warnings.push({ type: 'unsupported', feature: 'headers' });
     }
@@ -276,6 +333,15 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
     const providerOptions = options.providerOptions?.opengradient as
       | OpenGradientChatProviderOptions
       | undefined;
+
+    const settlementMode = providerOptions?.settlementMode;
+    if (settlementMode !== undefined && !(settlementMode in SETTLEMENT_MODES)) {
+      warnings.push({
+        type: 'compatibility',
+        feature: 'settlementMode',
+        details: `unknown settlementMode "${settlementMode}" ignored; expected private | batch | individual`,
+      });
+    }
 
     const args: ChatParams = {
       model: this.modelId as TEE_LLM,
@@ -320,6 +386,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   async doGenerate(
     options: LanguageModelV3CallOptions,
   ): Promise<LanguageModelV3GenerateResult> {
+    throwIfAborted(options.abortSignal);
     const { args, warnings } = this.getArgs(options);
     const endpoints = resolveEndpoints(this.config.settings);
     const failedEndpoints: string[] = [];
@@ -360,106 +427,100 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
         if (isLast || !isConnectionError(error)) {
           throw mapOpenGradientError(error, args, endpoint);
         }
-        // Connection error with more endpoints to try → fall over to the next.
         if (endpoint) failedEndpoints.push(endpoint);
       } finally {
-        await client.close();
+        await safeClose(client);
       }
     }
 
-    // resolveEndpoints always yields at least one entry, so the loop returns or
-    // throws above; this satisfies the type checker.
     throw new Error('OpenGradient: no TEE endpoints configured');
   }
 
   async doStream(
     options: LanguageModelV3CallOptions,
   ): Promise<LanguageModelV3StreamResult> {
+    throwIfAborted(options.abortSignal);
     const { args, warnings } = this.getArgs(options);
     const endpoints = resolveEndpoints(this.config.settings);
+    const createClient = this.createClient;
+    const settings = this.config.settings;
+    const includeRawChunks = options.includeRawChunks ?? false;
 
-    // Connect with failover BEFORE streaming: try each endpoint until one yields
-    // its first chunk. Once connected we commit to that TEE — there is no
-    // mid-stream failover. See resolveEndpoints for the interim/registry note.
-    let client: OpenGradientClientLike | undefined;
-    let iterator: AsyncIterator<StreamChunk> | undefined;
-    let first: IteratorResult<StreamChunk> | undefined;
-    let connectError: unknown;
-    let endpoint: string | undefined;
-    const failedEndpoints: string[] = [];
-
-    for (let i = 0; i < endpoints.length; i++) {
-      endpoint = endpoints[i];
-      const candidate = this.createClient(this.config.settings, endpoint);
-      try {
-        const iterable = candidate.llm.chat({ ...args, stream: true });
-        const candidateIterator = iterable[Symbol.asyncIterator]();
-        first = await candidateIterator.next();
-        client = candidate;
-        iterator = candidateIterator;
-        break;
-      } catch (error) {
-        await candidate.close();
-        connectError = error;
-        const isLast = i === endpoints.length - 1;
-        if (isLast || !isConnectionError(error)) break;
-        // Connection error with more endpoints to try → fall over to the next.
-        if (endpoint) failedEndpoints.push(endpoint);
-      }
-    }
-
-    if (!client || !iterator || !first) {
-      // Every endpoint failed to connect — surface the error through the stream.
-      const error = mapOpenGradientError(connectError, args, endpoint);
-      return {
-        stream: new ReadableStream<LanguageModelV3StreamPart>({
-          start(controller) {
-            controller.enqueue({ type: 'stream-start', warnings });
-            controller.enqueue({ type: 'error', error });
-            controller.close();
-          },
-        }),
-        request: { body: args },
-      };
-    }
-
-    if (failedEndpoints.length > 0) {
-      warnings.push(failoverWarning(failedEndpoints, endpoint));
-    }
-
-    const connectedClient = client;
-    const firstResult = first;
-    const restIterator = iterator;
-
+    let activeClient: OpenGradientClientLike | undefined;
+    let activeIterator: AsyncIterator<StreamChunk> | undefined;
+    let cancelled = false;
     let closed = false;
     const close = async () => {
       if (closed) return;
       closed = true;
-      await connectedClient.close();
+      const client = activeClient;
+      activeClient = undefined;
+      if (client) await safeClose(client);
     };
-
-    // Re-thread the already-pulled first chunk in front of the remaining stream.
-    async function* chunks(): AsyncGenerator<StreamChunk> {
-      if (firstResult.done) return;
-      yield firstResult.value;
-      let next: IteratorResult<StreamChunk>;
-      while (!(next = await restIterator.next()).done) {
-        yield next.value;
-      }
-    }
-
-    let textId: string | undefined;
 
     const stream = new ReadableStream<LanguageModelV3StreamPart>({
       async start(controller) {
-        controller.enqueue({ type: 'stream-start', warnings });
+        const enqueue = (part: LanguageModelV3StreamPart) => {
+          if (!cancelled) controller.enqueue(part);
+        };
+
+        let iterator: AsyncIterator<StreamChunk> | undefined;
+        let first: IteratorResult<StreamChunk> | undefined;
+        let connectError: unknown;
+        let endpoint: string | undefined;
+        const failedEndpoints: string[] = [];
+
+        for (let i = 0; i < endpoints.length; i++) {
+          if (cancelled) break;
+          endpoint = endpoints[i];
+          try {
+            const candidate = createClient(settings, endpoint);
+            activeClient = candidate;
+            const iterable = candidate.llm.chat({ ...args, stream: true });
+            const it = iterable[Symbol.asyncIterator]();
+            activeIterator = it;
+            first = await it.next();
+            iterator = it;
+            break;
+          } catch (error) {
+            activeIterator = undefined;
+            if (cancelled) break; // cancel() already closed the client
+            if (activeClient) {
+              await safeClose(activeClient);
+              activeClient = undefined;
+            }
+            connectError = error;
+            const isLast = i === endpoints.length - 1;
+            if (isLast || !isConnectionError(error)) break;
+            if (endpoint) failedEndpoints.push(endpoint);
+          }
+        }
+
+        if (cancelled) return;
+
+        if (iterator && failedEndpoints.length > 0) {
+          warnings.push(failoverWarning(failedEndpoints, endpoint));
+        }
+        enqueue({ type: 'stream-start', warnings });
+
+        if (!iterator || !first) {
+          enqueue({
+            type: 'error',
+            error: mapOpenGradientError(connectError, args, endpoint),
+          });
+          if (!cancelled) controller.close();
+          return;
+        }
+
+        let textId: string | undefined;
+        let finished = false;
         try {
-          // With tools the SDK degrades to a single non-streamed final chunk
-          // carrying the full `tool_calls`; we synthesize the V3 tool parts from
-          // it below (args are not token-streamed).
-          for await (const chunk of chunks()) {
-            if (options.includeRawChunks) {
-              controller.enqueue({ type: 'raw', rawValue: chunk });
+          let result = first;
+          while (!result.done) {
+            if (cancelled) break;
+            const chunk = result.value;
+            if (includeRawChunks) {
+              enqueue({ type: 'raw', rawValue: chunk });
             }
 
             const choice = chunk.choices?.[0];
@@ -467,36 +528,33 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
             if (delta) {
               if (textId === undefined) {
                 textId = crypto.randomUUID();
-                controller.enqueue({ type: 'text-start', id: textId });
+                enqueue({ type: 'text-start', id: textId });
               }
-              controller.enqueue({ type: 'text-delta', id: textId, delta });
+              enqueue({ type: 'text-delta', id: textId, delta });
             }
 
             if (chunk.isFinal) {
               if (textId !== undefined) {
-                controller.enqueue({ type: 'text-end', id: textId });
+                enqueue({ type: 'text-end', id: textId });
               }
               const toolCalls = choice?.delta?.tool_calls;
               if (toolCalls?.length) {
                 for (const toolCall of mapToolCalls(toolCalls)) {
-                  controller.enqueue({
+                  enqueue({
                     type: 'tool-input-start',
                     id: toolCall.toolCallId,
                     toolName: toolCall.toolName,
                   });
-                  controller.enqueue({
+                  enqueue({
                     type: 'tool-input-delta',
                     id: toolCall.toolCallId,
                     delta: toolCall.input,
                   });
-                  controller.enqueue({
-                    type: 'tool-input-end',
-                    id: toolCall.toolCallId,
-                  });
-                  controller.enqueue(toolCall);
+                  enqueue({ type: 'tool-input-end', id: toolCall.toolCallId });
+                  enqueue(toolCall);
                 }
               }
-              controller.enqueue({
+              enqueue({
                 type: 'finish',
                 finishReason: mapOpenGradientFinishReason(
                   choice?.finish_reason ?? undefined,
@@ -509,19 +567,41 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
                   ),
                 },
               });
+              finished = true;
             }
+
+            result = await iterator.next();
+          }
+
+          if (!cancelled && !finished) {
+            if (textId !== undefined) {
+              enqueue({ type: 'text-end', id: textId });
+            }
+            enqueue({
+              type: 'finish',
+              finishReason: mapOpenGradientFinishReason(undefined),
+              usage: mapOpenGradientUsage(undefined),
+              providerMetadata: { opengradient: {} },
+            });
           }
         } catch (error) {
-          controller.enqueue({
+          enqueue({
             type: 'error',
             error: mapOpenGradientError(error, args, endpoint),
           });
         } finally {
           await close();
-          controller.close();
+          if (!cancelled) controller.close();
         }
       },
-      cancel: close,
+      async cancel() {
+        cancelled = true;
+        const stopped = Promise.resolve(activeIterator?.return?.()).catch(
+          () => {},
+        );
+        await close();
+        await stopped;
+      },
     });
 
     return { stream, request: { body: args } };
