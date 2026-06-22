@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { TextGenerationOutput } from 'opengradient-sdk';
+import { OpenGradientError, type TextGenerationOutput } from 'opengradient-sdk';
 import {
   OpenGradientChatLanguageModel,
   type OpenGradientClientLike,
@@ -189,6 +189,69 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
       ),
     ).toBe(true);
     expect(chatSpy.mock.calls[0]![0].toolChoice).toBe('auto');
+  });
+
+  it('fails over to the next endpoint on a connection error', async () => {
+    const closeA = vi.fn().mockResolvedValue(undefined);
+    const closeB = vi.fn().mockResolvedValue(undefined);
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: { privateKey: '0xabc', llmServerUrl: ['https://a', 'https://b'] },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        if (endpoint === 'https://a') {
+          return {
+            llm: { chat: vi.fn().mockRejectedValue(new Error('fetch failed')) as never },
+            close: closeA as never,
+          };
+        }
+        return {
+          llm: {
+            chat: vi.fn().mockResolvedValue({
+              finishReason: 'stop',
+              chatOutput: { role: 'assistant', content: 'from B' },
+            }) as never,
+          },
+          close: closeB as never,
+        };
+      },
+    });
+
+    const result = await m.doGenerate(baseCall);
+
+    expect(seen).toEqual(['https://a', 'https://b']);
+    expect(result.content).toEqual([{ type: 'text', text: 'from B' }]);
+    expect(closeA).toHaveBeenCalledTimes(1);
+    expect(closeB).toHaveBeenCalledTimes(1);
+    // Failover is surfaced, never silent.
+    expect(
+      result.warnings.some(
+        (w) => w.type === 'other' && w.message.includes('https://a'),
+      ),
+    ).toBe(true);
+  });
+
+  it('does not fail over on a reachable-TEE error with a status code', async () => {
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: { privateKey: '0xabc', llmServerUrl: ['https://a', 'https://b'] },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        return {
+          llm: {
+            chat: vi
+              .fn()
+              .mockRejectedValue(new OpenGradientError('payment required', 402)) as never,
+          },
+          close: vi.fn().mockResolvedValue(undefined) as never,
+        };
+      },
+    });
+
+    await expect(m.doGenerate(baseCall)).rejects.toMatchObject({
+      name: 'AI_APICallError',
+    });
+    expect(seen).toEqual(['https://a']);
   });
 
   it('maps SDK errors to APICallError and still closes', async () => {

@@ -150,6 +150,50 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
     expect(finish.finishReason).toEqual({ unified: 'tool-calls', raw: 'tool_calls' });
   });
 
+  it('fails over to the next endpoint when the first connection fails', async () => {
+    const closeA = vi.fn().mockResolvedValue(undefined);
+    const badClient: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.reject(new Error('fetch failed')),
+          }),
+        }) as never,
+      },
+      close: closeA as never,
+    };
+    const goodClient = streamingClient([
+      chunk({ choices: [{ delta: { content: 'hi' }, index: 0 }] }),
+      chunk({
+        choices: [{ delta: {}, index: 0, finish_reason: 'stop' }],
+        isFinal: true,
+        teeSignature: 'sig',
+      }),
+    ]);
+
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: { privateKey: '0xabc', llmServerUrl: ['https://a', 'https://b'] },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        return endpoint === 'https://a' ? badClient : goodClient;
+      },
+    });
+
+    const { stream } = await m.doStream(baseCall);
+    const parts = await drain(stream);
+
+    expect(seen).toEqual(['https://a', 'https://b']);
+    expect(parts.map((p) => p.type)).toEqual([
+      'stream-start',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'finish',
+    ]);
+    expect(closeA).toHaveBeenCalledTimes(1);
+  });
+
   it('emits an error part and still closes when the stream throws', async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const boom: AsyncIterable<StreamChunk> = {

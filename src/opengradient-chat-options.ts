@@ -36,10 +36,15 @@ export interface OpenGradientProviderSettings {
   rpcUrl?: string;
 
   /**
-   * Hardcoded TEE LLM server URL for dev / self-hosted use. When set, the
+   * Hardcoded TEE LLM server URL(s) for dev / self-hosted use. When set, the
    * on-chain registry is bypassed and TLS pinning is disabled.
+   *
+   * Pass an array to fail over across endpoints in order: if one is unreachable
+   * the next is tried. Falls back to `OPENGRADIENT_LLM_SERVER_URL`
+   * (comma-separated for a list). This is an interim measure while the SDK's
+   * default registry is stale — see the note in the language model.
    */
-  llmServerUrl?: string;
+  llmServerUrl?: string | string[];
 
   /**
    * Maximum payment per request, in atomic units (USDC has 6 decimals).
