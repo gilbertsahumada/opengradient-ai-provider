@@ -98,6 +98,58 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
     expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('synthesizes tool parts from the degraded single final chunk', async () => {
+    const client = streamingClient([
+      chunk({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
+                },
+              ],
+            },
+            index: 0,
+            finish_reason: 'tool_calls',
+          },
+        ],
+        isFinal: true,
+        usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+      }),
+    ]);
+
+    const { stream } = await model(client).doStream(baseCall);
+    const parts = await drain(stream);
+
+    expect(parts.map((p) => p.type)).toEqual([
+      'stream-start',
+      'tool-input-start',
+      'tool-input-delta',
+      'tool-input-end',
+      'tool-call',
+      'finish',
+    ]);
+
+    const toolCall = parts.find((p) => p.type === 'tool-call') as Extract<
+      LanguageModelV3StreamPart,
+      { type: 'tool-call' }
+    >;
+    expect(toolCall).toMatchObject({
+      toolCallId: 'call_1',
+      toolName: 'get_weather',
+      input: '{"city":"Paris"}',
+    });
+
+    const finish = parts.find((p) => p.type === 'finish') as Extract<
+      LanguageModelV3StreamPart,
+      { type: 'finish' }
+    >;
+    expect(finish.finishReason).toEqual({ unified: 'tool-calls', raw: 'tool_calls' });
+  });
+
   it('emits an error part and still closes when the stream throws', async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const boom: AsyncIterable<StreamChunk> = {

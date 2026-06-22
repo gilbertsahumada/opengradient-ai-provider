@@ -114,6 +114,83 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
     ).toBe(true);
   });
 
+  it('maps tool calls into content and forwards tools/toolChoice', async () => {
+    const chatSpy = vi.fn();
+    const client = fakeClient(
+      {
+        finishReason: 'tool_calls',
+        chatOutput: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
+            },
+          ],
+        },
+      },
+      chatSpy,
+    );
+
+    const result = await model(client).doGenerate({
+      ...baseCall,
+      tools: [
+        {
+          type: 'function',
+          name: 'get_weather',
+          description: 'Get weather',
+          inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      ],
+      toolChoice: { type: 'auto' },
+    });
+
+    expect(result.finishReason).toEqual({ unified: 'tool-calls', raw: 'tool_calls' });
+    expect(result.content).toEqual([
+      {
+        type: 'tool-call',
+        toolCallId: 'call_1',
+        toolName: 'get_weather',
+        input: '{"city":"Paris"}',
+      },
+    ]);
+
+    const args = chatSpy.mock.calls[0]![0];
+    expect(args.tools).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get weather',
+          parameters: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      },
+    ]);
+    expect(args.toolChoice).toBe('auto');
+  });
+
+  it('warns and falls back to auto for a forced specific tool', async () => {
+    const chatSpy = vi.fn();
+    const client = fakeClient(
+      { finishReason: 'stop', chatOutput: { role: 'assistant', content: 'ok' } },
+      chatSpy,
+    );
+
+    const result = await model(client).doGenerate({
+      ...baseCall,
+      toolChoice: { type: 'tool', toolName: 'get_weather' },
+    });
+
+    expect(
+      result.warnings.some(
+        (w) => w.type === 'unsupported' && w.feature === 'tool-choice-specific',
+      ),
+    ).toBe(true);
+    expect(chatSpy.mock.calls[0]![0].toolChoice).toBe('auto');
+  });
+
   it('maps SDK errors to APICallError and still closes', async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const client: OpenGradientClientLike = {

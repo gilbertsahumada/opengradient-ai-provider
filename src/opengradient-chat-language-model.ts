@@ -1,6 +1,7 @@
 import type {
   LanguageModelV3,
   LanguageModelV3CallOptions,
+  LanguageModelV3Content,
   LanguageModelV3GenerateResult,
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
@@ -14,11 +15,13 @@ import {
   type ClientConfig,
   type StreamChunk,
   type TextGenerationOutput,
+  type Tool,
 } from 'opengradient-sdk';
 import { convertToOpenGradientMessages } from './convert-to-opengradient-messages';
 import { mapOpenGradientError } from './opengradient-error';
 import { mapOpenGradientFinishReason } from './map-opengradient-finish-reason';
 import { mapOpenGradientUsage } from './map-opengradient-usage';
+import { mapToolCalls } from './map-opengradient-tool-calls';
 import type {
   OpenGradientChatModelId,
   OpenGradientChatProviderOptions,
@@ -88,9 +91,54 @@ function mapSettlementMode(
 }
 
 /**
+ * Map a V3 tool choice to the SDK's plain-string `toolChoice`. Forcing a
+ * specific tool is unsupported: the SDK types `toolChoice` as a string and can't
+ * carry OpenAI's force-tool object, so we warn and fall back to `'auto'`.
+ */
+function mapToolChoice(
+  choice: LanguageModelV3CallOptions['toolChoice'],
+  warnings: SharedV3Warning[],
+): string | undefined {
+  if (!choice) return undefined;
+  switch (choice.type) {
+    case 'auto':
+    case 'none':
+    case 'required':
+      return choice.type;
+    case 'tool':
+      warnings.push({ type: 'unsupported', feature: 'tool-choice-specific' });
+      return 'auto';
+  }
+}
+
+/** Map V3 function tools to SDK `Tool[]`, warning on provider-defined tools. */
+function mapTools(
+  tools: LanguageModelV3CallOptions['tools'],
+  warnings: SharedV3Warning[],
+): Tool[] {
+  if (!tools) return [];
+  const mapped: Tool[] = [];
+  for (const tool of tools) {
+    if (tool.type === 'function') {
+      mapped.push({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema as Record<string, unknown>,
+        },
+      });
+    } else {
+      warnings.push({ type: 'unsupported', feature: 'provider-defined-tool' });
+    }
+  }
+  return mapped;
+}
+
+/**
  * OpenGradient TEE chat model implementing the AI SDK `LanguageModelV3` spec.
- * Phase 2: non-streaming text generation. `doStream` and tool calling land in
- * later phases.
+ * Supports non-streaming generation, streaming text, and tool calling (streaming
+ * with tools is single-shot upstream — see `doStream`).
  */
 export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   readonly specificationVersion = 'v3';
@@ -141,13 +189,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
     if (options.headers && Object.keys(options.headers).length > 0) {
       warnings.push({ type: 'unsupported', feature: 'headers' });
     }
-    if (options.tools && options.tools.length > 0) {
-      warnings.push({
-        type: 'unsupported',
-        feature: 'tools',
-        details: 'tool calling is implemented in a later phase',
-      });
-    }
+    const tools = mapTools(options.tools, warnings);
 
     if (!KNOWN_MODEL_IDS.has(this.modelId)) {
       warnings.push({
@@ -169,6 +211,8 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
       stopSequence: options.stopSequences,
       responseFormat: this.mapResponseFormat(options.responseFormat, warnings),
       x402SettlementMode: mapSettlementMode(providerOptions?.settlementMode),
+      tools: tools.length > 0 ? tools : undefined,
+      toolChoice: mapToolChoice(options.toolChoice, warnings),
     };
 
     return { args, warnings };
@@ -214,8 +258,21 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
       await client.close();
     }
 
+    const content: LanguageModelV3Content[] = [];
+    const text = result.chatOutput?.content ?? '';
+    if (text) {
+      content.push({ type: 'text', text });
+    }
+    const toolCalls = result.chatOutput?.tool_calls;
+    if (toolCalls?.length) {
+      content.push(...mapToolCalls(toolCalls));
+    }
+    if (content.length === 0) {
+      content.push({ type: 'text', text: '' });
+    }
+
     return {
-      content: [{ type: 'text', text: result.chatOutput?.content ?? '' }],
+      content,
       finishReason: mapOpenGradientFinishReason(result.finishReason),
       usage: mapOpenGradientUsage(result.usage),
       providerMetadata: { opengradient: collectTeeMetadata(result) },
@@ -244,8 +301,9 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
       async start(controller) {
         controller.enqueue({ type: 'stream-start', warnings });
         try {
-          // Streaming + tools degrades upstream to a single non-streamed chunk;
-          // synthesizing tool parts from it is handled in Phase 4.
+          // With tools the SDK degrades to a single non-streamed final chunk
+          // carrying the full `tool_calls`; we synthesize the V3 tool parts from
+          // it below (args are not token-streamed).
           for await (const chunk of client.llm.chat({ ...args, stream: true })) {
             if (options.includeRawChunks) {
               controller.enqueue({ type: 'raw', rawValue: chunk });
@@ -264,6 +322,26 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
             if (chunk.isFinal) {
               if (textId !== undefined) {
                 controller.enqueue({ type: 'text-end', id: textId });
+              }
+              const toolCalls = choice?.delta?.tool_calls;
+              if (toolCalls?.length) {
+                for (const toolCall of mapToolCalls(toolCalls)) {
+                  controller.enqueue({
+                    type: 'tool-input-start',
+                    id: toolCall.toolCallId,
+                    toolName: toolCall.toolName,
+                  });
+                  controller.enqueue({
+                    type: 'tool-input-delta',
+                    id: toolCall.toolCallId,
+                    delta: toolCall.input,
+                  });
+                  controller.enqueue({
+                    type: 'tool-input-end',
+                    id: toolCall.toolCallId,
+                  });
+                  controller.enqueue(toolCall);
+                }
               }
               controller.enqueue({
                 type: 'finish',
