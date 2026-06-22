@@ -193,7 +193,8 @@ check OPG funds and allowance, not just that payment failed.
 
 - **No multimodal:** file / image / audio parts are dropped with a warning (text only).
 - **Streaming + tools is degraded:** the tool call arrives in one synthesized final
-  chunk, not token-streamed.
+  chunk, not token-streamed, and the upstream SDK omits token `usage` for this path —
+  the `finish` part reports no usage.
 - **`toolChoice: { type: 'tool' }`** (force a specific tool) is unsupported; it falls
   back to `'auto'` with a warning.
 - **Ignored sampling params:** `topP`, `topK`, `presencePenalty`, `frequencyPenalty`,

@@ -3,7 +3,9 @@ import {
   type Address,
   createPublicClient,
   erc20Abi,
+  formatUnits,
   http,
+  parseUnits,
 } from 'viem';
 import { base } from 'viem/chains';
 import {
@@ -19,6 +21,15 @@ import {
  */
 const PERMIT2_ADDRESS: Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
+/** OPG uses 18 decimals (ERC-20 standard). */
+const OPG_DECIMALS = 18;
+
+/**
+ * Default minimum Permit2 allowance for `ready` — matches the canonical setup call
+ * `ensureOpgApproval(account, 5, 100)`, which keeps the allowance at/above 5 OPG.
+ */
+const DEFAULT_MIN_ALLOWANCE = parseUnits('5', OPG_DECIMALS);
+
 /**
  * A read-only on-chain report of whether a wallet is ready to pay for OpenGradient
  * inference. All amounts are raw atomic units (bigint); `issues` are actionable,
@@ -32,7 +43,7 @@ export interface OpenGradientSetupReport {
   ethBalance: bigint;
   /** OPG allowance granted to Permit2 (atomic units). */
   permit2Allowance: bigint;
-  /** True when the wallet can pay right now: OPG funded and Permit2 allowance set. */
+  /** True when OPG is funded and the Permit2 allowance is at/above `minAllowance`. */
   ready: boolean;
   issues: string[];
 }
@@ -58,6 +69,11 @@ export interface CheckOpenGradientSetupOptions {
    * OpenGradient TEE registry network.
    */
   rpcUrl?: string;
+  /**
+   * Minimum Permit2 allowance (atomic units) required for `ready`. Defaults to
+   * 5 OPG, matching the canonical `ensureOpgApproval(account, 5, 100)` setup.
+   */
+  minAllowance?: bigint;
   /** Inject a read client (for testing). Defaults to a viem client against Base. */
   publicClient?: OpenGradientReadClient;
 }
@@ -83,6 +99,7 @@ export async function checkOpenGradientSetup(
   opts: CheckOpenGradientSetupOptions = {},
 ): Promise<OpenGradientSetupReport> {
   const address = typeof account === 'string' ? account : account.address;
+  const minAllowance = opts.minAllowance ?? DEFAULT_MIN_ALLOWANCE;
 
   const publicClient =
     opts.publicClient ??
@@ -113,9 +130,11 @@ export async function checkOpenGradientSetup(
       `No OPG on Base for ${address}. Fund the wallet before inference — see ${DEFAULT_HUB_SIGNUP_URL}.`,
     );
   }
-  if (permit2Allowance === 0n) {
+  if (permit2Allowance < minAllowance) {
     issues.push(
-      'Permit2 allowance for OPG is 0. Run `ensureOpgApproval(account, 5, 100)` once before paying.',
+      `Permit2 allowance for OPG is ${formatUnits(permit2Allowance, OPG_DECIMALS)} OPG ` +
+        `(need ≥ ${formatUnits(minAllowance, OPG_DECIMALS)}). ` +
+        'Run `ensureOpgApproval(account, 5, 100)` once before paying.',
     );
     if (ethBalance === 0n) {
       issues.push(
@@ -129,7 +148,7 @@ export async function checkOpenGradientSetup(
     opgBalance,
     ethBalance,
     permit2Allowance,
-    ready: opgBalance > 0n && permit2Allowance > 0n,
+    ready: opgBalance > 0n && permit2Allowance >= minAllowance,
     issues,
   };
 }
