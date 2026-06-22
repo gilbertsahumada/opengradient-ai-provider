@@ -27,7 +27,9 @@ function model(client: OpenGradientClientLike) {
 }
 
 const baseCall = {
-  prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }],
+  prompt: [
+    { role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] },
+  ],
 };
 
 async function drain(
@@ -108,7 +110,10 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
                 {
                   id: 'call_1',
                   type: 'function',
-                  function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
+                  function: {
+                    name: 'get_weather',
+                    arguments: '{"city":"Paris"}',
+                  },
                 },
               ],
             },
@@ -147,7 +152,10 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
       LanguageModelV3StreamPart,
       { type: 'finish' }
     >;
-    expect(finish.finishReason).toEqual({ unified: 'tool-calls', raw: 'tool_calls' });
+    expect(finish.finishReason).toEqual({
+      unified: 'tool-calls',
+      raw: 'tool_calls',
+    });
   });
 
   it('fails over to the next endpoint when the first connection fails', async () => {
@@ -156,7 +164,7 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
       llm: {
         chat: vi.fn().mockReturnValue({
           [Symbol.asyncIterator]: () => ({
-            next: () => Promise.reject(new Error('fetch failed')),
+            next: () => Promise.reject(new TypeError('fetch failed')),
           }),
         }) as never,
       },
@@ -173,7 +181,10 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
 
     const seen: Array<string | undefined> = [];
     const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
-      settings: { privateKey: '0xabc', llmServerUrl: ['https://a', 'https://b'] },
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
       createClient: (_settings, endpoint) => {
         seen.push(endpoint);
         return endpoint === 'https://a' ? badClient : goodClient;
@@ -192,6 +203,123 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
       'finish',
     ]);
     expect(closeA).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits a defensive finish when the upstream is empty', async () => {
+    const client = streamingClient([]);
+    const { stream } = await model(client).doStream(baseCall);
+    const parts = await drain(stream);
+
+    expect(parts.map((p) => p.type)).toEqual(['stream-start', 'finish']);
+    const finish = parts.find((p) => p.type === 'finish') as Extract<
+      LanguageModelV3StreamPart,
+      { type: 'finish' }
+    >;
+    expect(finish.finishReason.unified).toBe('other');
+  });
+
+  it('stops the upstream iterator and closes the client on cancel', async () => {
+    const returnSpy = vi
+      .fn()
+      .mockResolvedValue({ done: true, value: undefined });
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    let pulls = 0;
+    const iterator: AsyncIterator<StreamChunk> = {
+      next: () => {
+        pulls += 1;
+        if (pulls === 1) {
+          return Promise.resolve({
+            done: false,
+            value: chunk({ choices: [{ delta: { content: 'hi' }, index: 0 }] }),
+          });
+        }
+        return new Promise<IteratorResult<StreamChunk>>(() => {}); // never resolves
+      },
+      return: returnSpy as never,
+    };
+    const client: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: () => iterator,
+        }) as never,
+      },
+      close: closeSpy as never,
+    };
+
+    const { stream } = await model(client).doStream(baseCall);
+    const reader = stream.getReader();
+    await reader.read(); // stream-start
+    await reader.read(); // text-start
+    await reader.read(); // text-delta
+    await reader.cancel();
+
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the client and stops the iterator when cancelled before the first chunk', async () => {
+    const returnSpy = vi
+      .fn()
+      .mockResolvedValue({ done: true, value: undefined });
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const iterator: AsyncIterator<StreamChunk> = {
+      // never resolves — cancellation happens while awaiting the first chunk
+      next: () => new Promise<IteratorResult<StreamChunk>>(() => {}),
+      return: returnSpy as never,
+    };
+    const client: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: () => iterator,
+        }) as never,
+      },
+      close: closeSpy as never,
+    };
+
+    const { stream } = await model(client).doStream(baseCall);
+    await stream.cancel();
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the client even if iterator.return() hangs on cancel', async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const returnSpy = vi
+      .fn()
+      .mockReturnValue(new Promise<IteratorResult<StreamChunk>>(() => {})); // never resolves
+    const iterator: AsyncIterator<StreamChunk> = {
+      next: () => new Promise<IteratorResult<StreamChunk>>(() => {}),
+      return: returnSpy as never,
+    };
+    const client: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: () => iterator,
+        }) as never,
+      },
+      close: closeSpy as never,
+    };
+
+    const { stream } = await model(client).doStream(baseCall);
+    void stream.cancel(); // don't await — buggy version blocks on return()
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits an error part when client construction fails', async () => {
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: { privateKey: '0xabc' },
+      createClient: () => {
+        throw new Error('OpenGradient: privateKey missing');
+      },
+    });
+
+    const { stream } = await m.doStream(baseCall);
+    const parts = await drain(stream);
+
+    expect(parts.some((p) => p.type === 'error')).toBe(true);
   });
 
   it('emits an error part and still closes when the stream throws', async () => {
@@ -214,7 +342,10 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
       { type: 'error' }
     >;
     expect(error).toBeDefined();
-    expect(error.error).toMatchObject({ name: 'AI_APICallError', message: 'stream boom' });
+    expect(error.error).toMatchObject({
+      name: 'AI_APICallError',
+      message: 'stream boom',
+    });
     expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 });

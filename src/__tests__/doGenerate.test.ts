@@ -17,7 +17,10 @@ function fakeClient(
   };
 }
 
-function model(client: OpenGradientClientLike, modelId = 'anthropic/claude-haiku-4-5') {
+function model(
+  client: OpenGradientClientLike,
+  modelId = 'anthropic/claude-haiku-4-5',
+) {
   return new OpenGradientChatLanguageModel(modelId, {
     settings: { privateKey: '0xabc' },
     createClient: () => client,
@@ -25,7 +28,9 @@ function model(client: OpenGradientClientLike, modelId = 'anthropic/claude-haiku
 }
 
 const baseCall = {
-  prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }],
+  prompt: [
+    { role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] },
+  ],
 };
 
 describe('OpenGradientChatLanguageModel.doGenerate', () => {
@@ -53,7 +58,10 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
   it('injects the default maxTokens and passes through settlement mode', async () => {
     const chatSpy = vi.fn();
     const client = fakeClient(
-      { finishReason: 'stop', chatOutput: { role: 'assistant', content: 'ok' } },
+      {
+        finishReason: 'stop',
+        chatOutput: { role: 'assistant', content: 'ok' },
+      },
       chatSpy,
     );
 
@@ -81,7 +89,11 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
       close: closeSpy as never,
     };
 
-    const result = await model(client).doGenerate({ ...baseCall, topP: 0.5, seed: 7 });
+    const result = await model(client).doGenerate({
+      ...baseCall,
+      topP: 0.5,
+      seed: 7,
+    });
 
     const features = result.warnings.map((w) =>
       w.type === 'unsupported' ? w.feature : w.type,
@@ -98,9 +110,14 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
         chatOutput: { role: 'assistant', content: 'ok' },
       });
 
-    const empty = await model(client()).doGenerate({ ...baseCall, headers: {} });
+    const empty = await model(client()).doGenerate({
+      ...baseCall,
+      headers: {},
+    });
     expect(
-      empty.warnings.some((w) => w.type === 'unsupported' && w.feature === 'headers'),
+      empty.warnings.some(
+        (w) => w.type === 'unsupported' && w.feature === 'headers',
+      ),
     ).toBe(false);
 
     const withHeaders = await model(client()).doGenerate({
@@ -141,13 +158,19 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
           type: 'function',
           name: 'get_weather',
           description: 'Get weather',
-          inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+          inputSchema: {
+            type: 'object',
+            properties: { city: { type: 'string' } },
+          },
         },
       ],
       toolChoice: { type: 'auto' },
     });
 
-    expect(result.finishReason).toEqual({ unified: 'tool-calls', raw: 'tool_calls' });
+    expect(result.finishReason).toEqual({
+      unified: 'tool-calls',
+      raw: 'tool_calls',
+    });
     expect(result.content).toEqual([
       {
         type: 'tool-call',
@@ -164,7 +187,10 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
         function: {
           name: 'get_weather',
           description: 'Get weather',
-          parameters: { type: 'object', properties: { city: { type: 'string' } } },
+          parameters: {
+            type: 'object',
+            properties: { city: { type: 'string' } },
+          },
         },
       },
     ]);
@@ -174,7 +200,10 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
   it('warns and falls back to auto for a forced specific tool', async () => {
     const chatSpy = vi.fn();
     const client = fakeClient(
-      { finishReason: 'stop', chatOutput: { role: 'assistant', content: 'ok' } },
+      {
+        finishReason: 'stop',
+        chatOutput: { role: 'assistant', content: 'ok' },
+      },
       chatSpy,
     );
 
@@ -196,12 +225,19 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
     const closeB = vi.fn().mockResolvedValue(undefined);
     const seen: Array<string | undefined> = [];
     const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
-      settings: { privateKey: '0xabc', llmServerUrl: ['https://a', 'https://b'] },
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
       createClient: (_settings, endpoint) => {
         seen.push(endpoint);
         if (endpoint === 'https://a') {
           return {
-            llm: { chat: vi.fn().mockRejectedValue(new Error('fetch failed')) as never },
+            llm: {
+              chat: vi
+                .fn()
+                .mockRejectedValue(new TypeError('fetch failed')) as never,
+            },
             close: closeA as never,
           };
         }
@@ -223,7 +259,6 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'from B' }]);
     expect(closeA).toHaveBeenCalledTimes(1);
     expect(closeB).toHaveBeenCalledTimes(1);
-    // Failover is surfaced, never silent.
     expect(
       result.warnings.some(
         (w) => w.type === 'other' && w.message.includes('https://a'),
@@ -234,14 +269,19 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
   it('does not fail over on a reachable-TEE error with a status code', async () => {
     const seen: Array<string | undefined> = [];
     const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
-      settings: { privateKey: '0xabc', llmServerUrl: ['https://a', 'https://b'] },
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
       createClient: (_settings, endpoint) => {
         seen.push(endpoint);
         return {
           llm: {
             chat: vi
               .fn()
-              .mockRejectedValue(new OpenGradientError('payment required', 402)) as never,
+              .mockRejectedValue(
+                new OpenGradientError('payment required', 402),
+              ) as never,
           },
           close: vi.fn().mockResolvedValue(undefined) as never,
         };
@@ -252,6 +292,89 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
       name: 'AI_APICallError',
     });
     expect(seen).toEqual(['https://a']);
+  });
+
+  it('does not fail over on a non-network error', async () => {
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        return {
+          llm: { chat: vi.fn().mockRejectedValue(new Error('boom')) as never },
+          close: vi.fn().mockResolvedValue(undefined) as never,
+        };
+      },
+    });
+
+    await expect(m.doGenerate(baseCall)).rejects.toMatchObject({
+      name: 'AI_APICallError',
+    });
+    expect(seen).toEqual(['https://a']);
+  });
+
+  it('preserves a successful result when close() rejects', async () => {
+    const client: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockResolvedValue({
+          finishReason: 'stop',
+          chatOutput: { role: 'assistant', content: 'ok' },
+        }) as never,
+      },
+      close: vi.fn().mockRejectedValue(new Error('close failed')) as never,
+    };
+
+    const result = await model(client).doGenerate(baseCall);
+    expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+  });
+
+  it('preserves the original error when close() rejects', async () => {
+    const client: OpenGradientClientLike = {
+      llm: {
+        chat: vi.fn().mockRejectedValue(new Error('upstream boom')) as never,
+      },
+      close: vi.fn().mockRejectedValue(new Error('close failed')) as never,
+    };
+
+    await expect(model(client).doGenerate(baseCall)).rejects.toMatchObject({
+      message: 'upstream boom',
+    });
+  });
+
+  it('throws without building a client when the signal is already aborted', async () => {
+    const createClient = vi.fn();
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: { privateKey: '0xabc' },
+      createClient: createClient as never,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      m.doGenerate({ ...baseCall, abortSignal: controller.signal }),
+    ).rejects.toBeDefined();
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it('warns on an unknown settlementMode', async () => {
+    const client = fakeClient({
+      finishReason: 'stop',
+      chatOutput: { role: 'assistant', content: 'ok' },
+    });
+
+    const result = await model(client).doGenerate({
+      ...baseCall,
+      providerOptions: { opengradient: { settlementMode: 'bogus' as never } },
+    });
+
+    expect(
+      result.warnings.some(
+        (w) => w.type === 'compatibility' && w.feature === 'settlementMode',
+      ),
+    ).toBe(true);
   });
 
   it('maps SDK errors to APICallError and still closes', async () => {
