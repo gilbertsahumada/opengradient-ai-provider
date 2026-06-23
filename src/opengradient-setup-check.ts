@@ -31,6 +31,12 @@ const OPG_DECIMALS = 18;
 const DEFAULT_MIN_ALLOWANCE = parseUnits('5', OPG_DECIMALS);
 
 /**
+ * Suggested approval is this many times the min allowance, so a single approval
+ * survives many payments without re-approving. Keeps the canonical 5 -> 100.
+ */
+const APPROVE_MULTIPLIER = 20n;
+
+/**
  * A read-only on-chain report of whether a wallet is ready to pay for OpenGradient
  * inference. All amounts are raw atomic units (bigint); `issues` are actionable,
  * human-readable next steps.
@@ -65,10 +71,10 @@ export interface OpenGradientReadClient {
 export interface CheckOpenGradientSetupOptions {
   /**
    * RPC URL for **Base mainnet** (where OPG and Permit2 live). Defaults to a public
-   * Base RPC. Note: this is unrelated to the provider's `rpcUrl`, which points at the
+   * Base RPC. This is unrelated to the provider's `rpcUrl`, which points at the
    * OpenGradient TEE registry network.
    */
-  rpcUrl?: string;
+  baseRpcUrl?: string;
   /**
    * Minimum Permit2 allowance (atomic units) required for `ready`. Defaults to
    * 5 OPG, matching the canonical `ensureOpgApproval(account, 5, 100)` setup.
@@ -100,12 +106,13 @@ export async function checkOpenGradientSetup(
 ): Promise<OpenGradientSetupReport> {
   const address = typeof account === 'string' ? account : account.address;
   const minAllowance = opts.minAllowance ?? DEFAULT_MIN_ALLOWANCE;
+  const baseRpcUrl = opts.baseRpcUrl ?? BASE_MAINNET_RPC;
 
   const publicClient =
     opts.publicClient ??
     (createPublicClient({
       chain: base,
-      transport: http(opts.rpcUrl ?? BASE_MAINNET_RPC),
+      transport: http(baseRpcUrl),
     }) as unknown as OpenGradientReadClient);
 
   const [opgBalance, ethBalance, permit2Allowance] = await Promise.all([
@@ -131,11 +138,15 @@ export async function checkOpenGradientSetup(
     );
   }
   const minOpg = formatUnits(minAllowance, OPG_DECIMALS);
+  const approveOpg = formatUnits(
+    minAllowance * APPROVE_MULTIPLIER,
+    OPG_DECIMALS,
+  );
   if (permit2Allowance < minAllowance) {
     issues.push(
       `Permit2 allowance for OPG is ${formatUnits(permit2Allowance, OPG_DECIMALS)} OPG ` +
         `(need ≥ ${minOpg}). ` +
-        `Run \`ensureOpgApproval(account, ${minOpg})\` once before paying.`,
+        `Run \`ensureOpgApproval(account, ${minOpg}, ${approveOpg})\` once before paying.`,
     );
     if (opgBalance > 0n && opgBalance < minAllowance) {
       issues.push(

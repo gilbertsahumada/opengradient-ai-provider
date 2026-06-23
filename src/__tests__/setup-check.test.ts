@@ -135,7 +135,7 @@ describe('checkOpenGradientSetup', () => {
     expect(report.ready).toBe(false);
     const allowanceIssue = report.issues.find((i) => i.includes('allowance'));
     expect(allowanceIssue).toContain('need ≥ 10');
-    expect(allowanceIssue).toContain('ensureOpgApproval(account, 10');
+    expect(allowanceIssue).toContain('ensureOpgApproval(account, 10, 200');
     expect(allowanceIssue).not.toContain('account, 5');
   });
 
