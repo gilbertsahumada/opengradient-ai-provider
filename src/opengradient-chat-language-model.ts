@@ -332,7 +332,10 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
         warnings.push({ type: 'unsupported', feature });
       }
     }
-    if (options.headers && Object.keys(options.headers).length > 0) {
+    const userHeaders = Object.keys(options.headers ?? {}).filter(
+      (name) => name.toLowerCase() !== 'user-agent',
+    );
+    if (userHeaders.length > 0) {
       warnings.push({ type: 'unsupported', feature: 'headers' });
     }
     const tools = mapTools(options.tools, warnings);

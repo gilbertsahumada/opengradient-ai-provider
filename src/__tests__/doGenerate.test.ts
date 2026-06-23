@@ -129,6 +129,18 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
         (w) => w.type === 'unsupported' && w.feature === 'headers',
       ),
     ).toBe(true);
+
+    // The AI SDK auto-injects a user-agent header on every call; that alone
+    // must not produce an "unsupported headers" warning.
+    const userAgentOnly = await model(client()).doGenerate({
+      ...baseCall,
+      headers: { 'user-agent': 'ai/6.0.0' },
+    });
+    expect(
+      userAgentOnly.warnings.some(
+        (w) => w.type === 'unsupported' && w.feature === 'headers',
+      ),
+    ).toBe(false);
   });
 
   it('maps tool calls into content and forwards tools/toolChoice', async () => {
