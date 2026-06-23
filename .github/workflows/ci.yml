@@ -18,8 +18,6 @@ jobs:
         with:
           node-version: 22
 
-      # Match publish.yml: the lockfile is npm 11, node 22 ships npm 10 which
-      # misreads it ("missing from lock file").
       - run: npm install -g npm@11.5.1
 
       - run: npm ci
