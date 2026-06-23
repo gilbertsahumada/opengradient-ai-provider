@@ -21,18 +21,11 @@ npm install opengradient-ai-provider ai
 import { createOpenGradient } from 'opengradient-ai-provider';
 import { generateText } from 'ai';
 
-const llmServerUrl = process.env.OPENGRADIENT_LLM_SERVER_URL;
-if (!llmServerUrl) {
-  throw new Error(
-    'Set OPENGRADIENT_LLM_SERVER_URL; see "TEE endpoints" below.',
-  );
-}
-
 const opengradient = createOpenGradient({
   // server-only; falls back to OPENGRADIENT_PRIVATE_KEY when omitted
   privateKey: process.env.OPENGRADIENT_PRIVATE_KEY,
-  // see "TEE endpoints" below, currently required
-  llmServerUrl: llmServerUrl.split(','),
+  // see "TEE endpoints" below, currently required while the SDK registry is stale
+  llmServerUrl: process.env.OPENGRADIENT_LLM_SERVER_URL?.split(','),
 });
 
 const { text, providerMetadata } = await generateText({
