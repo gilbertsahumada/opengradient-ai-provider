@@ -1,7 +1,7 @@
 # opengradient-ai-provider
 
 A [Vercel AI SDK](https://sdk.vercel.ai) community provider for the
-[OpenGradient](https://opengradient.ai) TEE LLM — verifiable inference inside a
+[OpenGradient](https://opengradient.ai) TEE LLM: verifiable inference inside a
 Trusted Execution Environment, paid for on-chain via x402.
 
 Implements `LanguageModelV3`: `generateText`, `streamText`, and tool calling, with
@@ -24,7 +24,7 @@ import { generateText } from 'ai';
 const opengradient = createOpenGradient({
   // server-only; falls back to OPENGRADIENT_PRIVATE_KEY when omitted
   privateKey: process.env.OPENGRADIENT_PRIVATE_KEY,
-  // see "TEE endpoints" below — currently required
+  // see "TEE endpoints" below, currently required
   llmServerUrl: process.env.OPENGRADIENT_LLM_SERVER_URL?.split(','),
 });
 
@@ -37,12 +37,12 @@ console.log(text);
 console.log('TEE signature:', providerMetadata?.opengradient?.teeSignature);
 ```
 
-### TEE endpoints (`llmServerUrl`) — currently required
+### TEE endpoints (`llmServerUrl`): currently required
 
 The published OpenGradient SDK ships a default on-chain TEE registry that
 currently returns **no active TEEs**, so the normal discovery path fails. As an
 interim workaround, pass one or more TEE endpoints explicitly via `llmServerUrl`
-(a string or an array); the provider tries them in order and **fails over** to the
+(a string or an array). The provider tries them in order and **fails over** to the
 next on a connection failure, surfacing a warning when it does.
 
 ```ts
@@ -113,15 +113,15 @@ Every response exposes attestation and payment data under
 
 ## Configuration
 
-`createOpenGradient(settings)` — all fields optional; each has an env fallback.
+`createOpenGradient(settings)`: all fields optional, each has an env fallback.
 
-| Setting              | Type                 | Env fallback                                    | Notes                                                                                   |
-| -------------------- | -------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `privateKey`         | `string`             | `OPENGRADIENT_PRIVATE_KEY`                      | EVM key that pays for inference. **Server-only.**                                       |
-| `rpcUrl`             | `string`             | `OPENGRADIENT_RPC_URL`                          | RPC for the on-chain TEE registry.                                                      |
-| `llmServerUrl`       | `string \| string[]` | `OPENGRADIENT_LLM_SERVER_URL` (comma-separated) | Explicit TEE endpoint(s) with failover (see above).                                     |
-| `maxPaymentValue`    | `bigint`             | `OPENGRADIENT_MAX_PAYMENT_VALUE`                | Passed to the SDK. **Not enforced as a spend cap** upstream — do not rely on it as one. |
-| `teeRegistryAddress` | `string`             | `OPENGRADIENT_TEE_REGISTRY_ADDRESS`             | Override the TEERegistry contract.                                                      |
+| Setting              | Type                 | Env fallback                                    | Notes                                                                                     |
+| -------------------- | -------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `privateKey`         | `string`             | `OPENGRADIENT_PRIVATE_KEY`                      | EVM key that pays for inference. **Server-only.**                                         |
+| `rpcUrl`             | `string`             | `OPENGRADIENT_RPC_URL`                          | RPC for the on-chain TEE registry (see "Networks & RPC").                                 |
+| `llmServerUrl`       | `string \| string[]` | `OPENGRADIENT_LLM_SERVER_URL` (comma-separated) | Explicit TEE endpoint(s) with failover (see above).                                       |
+| `maxPaymentValue`    | `bigint`             | `OPENGRADIENT_MAX_PAYMENT_VALUE`                | Passed to the SDK. **Not enforced as a spend cap** upstream, so do not rely on it as one. |
+| `teeRegistryAddress` | `string`             | `OPENGRADIENT_TEE_REGISTRY_ADDRESS`             | Override the TEERegistry contract.                                                        |
 
 ### Per-call options
 
@@ -138,19 +138,44 @@ await generateText({
 });
 ```
 
-## Security — server-only
+## Networks & RPC
+
+Two separate networks are involved, plus the TEE servers that run the inference:
+
+| Network              | Role                                                    | Custom RPC                                                           |
+| -------------------- | ------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Base mainnet**     | Payment: the OPG token, x402, and Permit2 all live here | `BASE_MAINNET_RPC` env var (read by the SDK)                         |
+| **OpenGradient EVM** | The on-chain TEE registry used to discover enclaves     | `rpcUrl` setting / `OPENGRADIENT_RPC_URL`, plus `teeRegistryAddress` |
+| TEE servers (HTTP)   | The inference itself                                    | `llmServerUrl` (see above)                                           |
+
+A few things worth knowing:
+
+- The registry RPC is fully configurable through `rpcUrl` / `teeRegistryAddress`.
+  When you use the `llmServerUrl` workaround, the registry network is skipped
+  entirely.
+- The Base RPC can only be changed through the `BASE_MAINNET_RPC` environment
+  variable. The SDK reads it directly and does not accept it through provider
+  settings, so there is no `baseRpcUrl` option. `checkOpenGradientSetup` takes its
+  own `rpcUrl` for the Base reads it performs.
+- **Mainnet only, by OpenGradient's design.** The OPG token and the x402 payment
+  rails are deployed on Base mainnet and hardcoded in the SDK (`BASE_OPG_ADDRESS`
+  is a fixed Base address). There is no testnet OPG or testnet payment path, so
+  this provider cannot run on a testnet until OpenGradient ships one. The provider
+  is a thin wrapper over the SDK and cannot move the payment chain.
+
+## Security: server-only
 
 This provider takes an **EVM private key that controls real funds**. Run it
 **server-side only** (route handler, server action, backend). Never bundle it into
-client-side code, never hard-code or commit the key; load it from
+client-side code, never hard-code or commit the key, and load it from
 `OPENGRADIENT_PRIVATE_KEY`.
 
-## Prerequisite — OPG / Permit2 approval
+## Prerequisite: OPG / Permit2 approval
 
 The paying wallet must hold **OPG on Base mainnet** (and a little ETH for the
 one-time approval gas), and grant Permit2 approval **once** before any inference
-call. The provider intentionally never does this — it sends on-chain transactions,
-so you run it yourself:
+call. The provider intentionally never does this, since it sends on-chain
+transactions, so you run it yourself:
 
 ```ts
 import { ensureOpgApproval } from 'opengradient-sdk';
@@ -164,7 +189,7 @@ const account = privateKeyToAccount(
 await ensureOpgApproval(account, 5, 100);
 ```
 
-### Preflight — check your setup (read-only)
+### Preflight: check your setup (read-only)
 
 `checkOpenGradientSetup` inspects the wallet's OPG balance, ETH-for-gas, and Permit2
 allowance on Base so you can fix funding/approval **before** paying. It sends no
@@ -186,21 +211,21 @@ if (!report.ready) {
 ```
 
 It accepts a viem `Account` or a plain address, and an optional `{ rpcUrl }` for a
-custom **Base** RPC. Inference errors are likewise diagnostic — a `402` tells you to
+custom **Base** RPC. Inference errors are likewise diagnostic: a `402` tells you to
 check OPG funds and allowance, not just that payment failed.
 
 ## Limitations
 
 - **No multimodal:** file / image / audio parts are dropped with a warning (text only).
 - **Streaming + tools is degraded:** the tool call arrives in one synthesized final
-  chunk, not token-streamed, and the upstream SDK omits token `usage` for this path —
-  the `finish` part reports no usage.
+  chunk, not token-streamed, and the upstream SDK omits token `usage` for this path,
+  so the `finish` part reports no usage.
 - **`toolChoice: { type: 'tool' }`** (force a specific tool) is unsupported; it falls
   back to `'auto'` with a warning.
 - **Ignored sampling params:** `topP`, `topK`, `presencePenalty`, `frequencyPenalty`,
   `seed`, `abortSignal` (mid-flight), and `headers` are not supported and warn.
 - **JSON without a schema:** `responseFormat: { type: 'json' }` without a schema maps
-  to `json_object`, which Anthropic models reject — provide a schema.
+  to `json_object`, which Anthropic models reject, so provide a schema.
 - **OPG / Permit2 approval** is a prerequisite (see above).
 
 ## Examples
