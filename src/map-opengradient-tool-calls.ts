@@ -3,7 +3,7 @@ import type { LanguageModelV3ToolCall } from '@ai-sdk/provider';
 /** OpenAI-wire tool call as returned by the OpenGradient SDK. */
 interface OpenAIToolCall {
   id: string;
-  function: { name: string; arguments: string };
+  function: { name: string; arguments: unknown };
 }
 
 /**

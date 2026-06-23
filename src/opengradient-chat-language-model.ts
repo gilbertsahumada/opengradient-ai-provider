@@ -173,13 +173,32 @@ function isConnectionError(error: unknown): boolean {
   ) {
     return true;
   }
-  const e = error as { code?: string; cause?: { code?: string } };
-  if (e.code && NETWORK_ERROR_CODES.has(e.code)) return true;
-  if (e.cause?.code && NETWORK_ERROR_CODES.has(e.cause.code)) return true;
+  const code = getErrorCode(error);
+  if (code && NETWORK_ERROR_CODES.has(code)) return true;
   return (
     error instanceof TypeError &&
     error.message.toLowerCase().includes('fetch failed')
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined;
+  if (typeof error.code === 'string') return error.code;
+  const cause = error.cause;
+  if (isRecord(cause) && typeof cause.code === 'string') return cause.code;
+  return undefined;
+}
+
+function shouldFailOver(
+  error: unknown,
+  attempt: number,
+  totalAttempts: number,
+): boolean {
+  return attempt < totalAttempts - 1 && isConnectionError(error);
 }
 
 /** Close a client, swallowing cleanup errors so they never mask the result/error. */
@@ -276,6 +295,60 @@ function mapTools(
     }
   }
   return mapped;
+}
+
+function mapGenerateContent(
+  result: TextGenerationOutput,
+): LanguageModelV3Content[] {
+  const content: LanguageModelV3Content[] = [];
+  const text = result.chatOutput?.content ?? '';
+  if (text) {
+    content.push({ type: 'text', text });
+  }
+  const toolCalls = result.chatOutput?.tool_calls;
+  if (toolCalls?.length) {
+    content.push(...mapToolCalls(toolCalls));
+  }
+  return content.length > 0 ? content : [{ type: 'text', text: '' }];
+}
+
+type EnqueueStreamPart = (part: LanguageModelV3StreamPart) => void;
+
+function emitToolCallStreamParts(
+  toolCalls: Parameters<typeof mapToolCalls>[0] | undefined,
+  enqueue: EnqueueStreamPart,
+): void {
+  if (!toolCalls?.length) return;
+  for (const toolCall of mapToolCalls(toolCalls)) {
+    enqueue({
+      type: 'tool-input-start',
+      id: toolCall.toolCallId,
+      toolName: toolCall.toolName,
+    });
+    enqueue({
+      type: 'tool-input-delta',
+      id: toolCall.toolCallId,
+      delta: toolCall.input,
+    });
+    enqueue({ type: 'tool-input-end', id: toolCall.toolCallId });
+    enqueue(toolCall);
+  }
+}
+
+function buildFinishPart(
+  chunk: StreamChunk | undefined,
+  finishReason: string | undefined,
+): LanguageModelV3StreamPart {
+  return {
+    type: 'finish',
+    finishReason: mapOpenGradientFinishReason(finishReason),
+    usage: mapOpenGradientUsage(chunk?.usage),
+    providerMetadata: {
+      opengradient: chunk
+        ? pickDefinedStrings(chunk, STREAM_TEE_METADATA_FIELDS)
+        : {},
+    },
+  };
 }
 
 /**
@@ -419,21 +492,8 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
           warnings.push(failoverWarning(failedEndpoints, endpoint));
         }
 
-        const content: LanguageModelV3Content[] = [];
-        const text = result.chatOutput?.content ?? '';
-        if (text) {
-          content.push({ type: 'text', text });
-        }
-        const toolCalls = result.chatOutput?.tool_calls;
-        if (toolCalls?.length) {
-          content.push(...mapToolCalls(toolCalls));
-        }
-        if (content.length === 0) {
-          content.push({ type: 'text', text: '' });
-        }
-
         return {
-          content,
+          content: mapGenerateContent(result),
           finishReason: mapOpenGradientFinishReason(result.finishReason),
           usage: mapOpenGradientUsage(result.usage),
           providerMetadata: { opengradient: collectTeeMetadata(result) },
@@ -441,8 +501,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
           request: { body: args },
         };
       } catch (error) {
-        const isLast = i === endpoints.length - 1;
-        if (isLast || !isConnectionError(error)) {
+        if (!shouldFailOver(error, i, endpoints.length)) {
           throw mapOpenGradientError(error, args, endpoint);
         }
         if (endpoint) failedEndpoints.push(endpoint);
@@ -508,8 +567,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
               activeClient = undefined;
             }
             connectError = error;
-            const isLast = i === endpoints.length - 1;
-            if (isLast || !isConnectionError(error)) break;
+            if (!shouldFailOver(error, i, endpoints.length)) break;
             if (endpoint) failedEndpoints.push(endpoint);
           }
         }
@@ -555,36 +613,10 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
               if (textId !== undefined) {
                 enqueue({ type: 'text-end', id: textId });
               }
-              const toolCalls = choice?.delta?.tool_calls;
-              if (toolCalls?.length) {
-                for (const toolCall of mapToolCalls(toolCalls)) {
-                  enqueue({
-                    type: 'tool-input-start',
-                    id: toolCall.toolCallId,
-                    toolName: toolCall.toolName,
-                  });
-                  enqueue({
-                    type: 'tool-input-delta',
-                    id: toolCall.toolCallId,
-                    delta: toolCall.input,
-                  });
-                  enqueue({ type: 'tool-input-end', id: toolCall.toolCallId });
-                  enqueue(toolCall);
-                }
-              }
-              enqueue({
-                type: 'finish',
-                finishReason: mapOpenGradientFinishReason(
-                  choice?.finish_reason ?? undefined,
-                ),
-                usage: mapOpenGradientUsage(chunk.usage),
-                providerMetadata: {
-                  opengradient: pickDefinedStrings(
-                    chunk,
-                    STREAM_TEE_METADATA_FIELDS,
-                  ),
-                },
-              });
+              emitToolCallStreamParts(choice?.delta?.tool_calls, enqueue);
+              enqueue(
+                buildFinishPart(chunk, choice?.finish_reason ?? undefined),
+              );
               finished = true;
             }
 
@@ -595,12 +627,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
             if (textId !== undefined) {
               enqueue({ type: 'text-end', id: textId });
             }
-            enqueue({
-              type: 'finish',
-              finishReason: mapOpenGradientFinishReason(undefined),
-              usage: mapOpenGradientUsage(undefined),
-              providerMetadata: { opengradient: {} },
-            });
+            enqueue(buildFinishPart(undefined, undefined));
           }
         } catch (error) {
           enqueue({

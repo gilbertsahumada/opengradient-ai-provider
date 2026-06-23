@@ -159,6 +159,27 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
     expect(finish.usage.outputTokens.total).toBeUndefined();
   });
 
+  it('emits raw chunks when requested', async () => {
+    const first = chunk({ choices: [{ delta: { content: 'hi' }, index: 0 }] });
+    const final = chunk({
+      choices: [{ delta: {}, index: 0, finish_reason: 'stop' }],
+      isFinal: true,
+    });
+    const client = streamingClient([first, final]);
+
+    const { stream } = await model(client).doStream({
+      ...baseCall,
+      includeRawChunks: true,
+    });
+    const parts = await drain(stream);
+    const rawParts = parts.filter((p) => p.type === 'raw');
+
+    expect(rawParts).toEqual([
+      { type: 'raw', rawValue: first },
+      { type: 'raw', rawValue: final },
+    ]);
+  });
+
   it('fails over to the next endpoint when the first connection fails', async () => {
     const closeA = vi.fn().mockResolvedValue(undefined);
     const badClient: OpenGradientClientLike = {

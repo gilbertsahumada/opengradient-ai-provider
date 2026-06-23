@@ -1,5 +1,16 @@
 import type { LanguageModelV3FinishReason } from '@ai-sdk/provider';
 
+const FINISH_REASON_MAP: Record<
+  string,
+  LanguageModelV3FinishReason['unified']
+> = {
+  stop: 'stop',
+  length: 'length',
+  tool_calls: 'tool-calls',
+  content_filter: 'content-filter',
+  error: 'error',
+};
+
 /**
  * Map OpenGradient's string finish reason to the V3 structured finish reason.
  * The original string is preserved in `raw`.
@@ -7,25 +18,6 @@ import type { LanguageModelV3FinishReason } from '@ai-sdk/provider';
 export function mapOpenGradientFinishReason(
   raw: string | undefined,
 ): LanguageModelV3FinishReason {
-  let unified: LanguageModelV3FinishReason['unified'];
-  switch (raw) {
-    case 'stop':
-      unified = 'stop';
-      break;
-    case 'length':
-      unified = 'length';
-      break;
-    case 'tool_calls':
-      unified = 'tool-calls';
-      break;
-    case 'content_filter':
-      unified = 'content-filter';
-      break;
-    case 'error':
-      unified = 'error';
-      break;
-    default:
-      unified = 'other';
-  }
+  const unified = raw ? (FINISH_REASON_MAP[raw] ?? 'other') : 'other';
   return { unified, raw };
 }

@@ -209,6 +209,17 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
     expect(args.toolChoice).toBe('auto');
   });
 
+  it('emits an empty text part when the response has no text or tool calls', async () => {
+    const client = fakeClient({
+      finishReason: 'stop',
+      chatOutput: { role: 'assistant', content: null },
+    });
+
+    const result = await model(client).doGenerate(baseCall);
+
+    expect(result.content).toEqual([{ type: 'text', text: '' }]);
+  });
+
   it('warns and falls back to auto for a forced specific tool', async () => {
     const chatSpy = vi.fn();
     const client = fakeClient(
@@ -324,6 +335,29 @@ describe('OpenGradientChatLanguageModel.doGenerate', () => {
 
     await expect(m.doGenerate(baseCall)).rejects.toMatchObject({
       name: 'AI_APICallError',
+    });
+    expect(seen).toEqual(['https://a']);
+  });
+
+  it('does not fail over or crash on a non-object thrown value', async () => {
+    const seen: Array<string | undefined> = [];
+    const m = new OpenGradientChatLanguageModel('anthropic/claude-haiku-4-5', {
+      settings: {
+        privateKey: '0xabc',
+        llmServerUrl: ['https://a', 'https://b'],
+      },
+      createClient: (_settings, endpoint) => {
+        seen.push(endpoint);
+        return {
+          llm: { chat: vi.fn().mockRejectedValue(null) as never },
+          close: vi.fn().mockResolvedValue(undefined) as never,
+        };
+      },
+    });
+
+    await expect(m.doGenerate(baseCall)).rejects.toMatchObject({
+      name: 'AI_APICallError',
+      message: 'null',
     });
     expect(seen).toEqual(['https://a']);
   });
