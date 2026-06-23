@@ -68,7 +68,7 @@ export function resolveClientConfig(
     settings.privateKey ?? process.env.OPENGRADIENT_PRIVATE_KEY;
   if (!privateKey) {
     throw new Error(
-      'OpenGradient: privateKey missing — pass it to createOpenGradient(...) or set OPENGRADIENT_PRIVATE_KEY',
+      'OpenGradient: privateKey missing, pass it to createOpenGradient(...) or set OPENGRADIENT_PRIVATE_KEY',
     );
   }
   return {
@@ -110,7 +110,7 @@ const defaultCreateClient = (
  *
  * FUTURE: once the SDK's registry is fixed (see docs/TS-SDK-REGISTRY-FIX.md),
  * drop the manual list and let the SDK discover and fail over across all active
- * TEEs on-chain — the way the Python SDK does — so no `llmServerUrl` is needed.
+ * TEEs on-chain, the way the Python SDK does, so no `llmServerUrl` is needed.
  *
  * An `undefined` element means "no override" → the SDK's registry path (the
  * default when no endpoints are configured).
@@ -159,7 +159,7 @@ const SDK_CONNECTION_FAILURE = /^TEE LLM (request|stream) failed/;
 /**
  * Whether a failed request should fail over to the next TEE endpoint. Because
  * each attempt can spend funds, this is a strict allow-list of genuine
- * connection failures — never a reachable TEE's rejection (an `OpenGradientError`
+ * connection failures, never a reachable TEE's rejection (an `OpenGradientError`
  * with an HTTP `statusCode`) nor a local config/mapping bug, which would fail the
  * same way on the next TEE and risk paying twice.
  */
@@ -203,7 +203,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 
 /**
  * Surface a TEE failover as a warning so callers can see that the primary
- * endpoint(s) were unreachable — the transparency principle: never fail over
+ * endpoint(s) were unreachable, the transparency principle: never fail over
  * silently. The endpoint that ultimately served the request is in
  * `providerMetadata.opengradient.teeEndpoint`.
  */
@@ -281,7 +281,7 @@ function mapTools(
 /**
  * OpenGradient TEE chat model implementing the AI SDK `LanguageModelV3` spec.
  * Supports non-streaming generation, streaming text, and tool calling (streaming
- * with tools is single-shot upstream — see `doStream`).
+ * with tools is single-shot upstream, see `doStream`).
  */
 export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   readonly specificationVersion = 'v3';
@@ -290,7 +290,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
   readonly modelId: OpenGradientChatModelId;
 
   /**
-   * OpenGradient TEE chat accepts text only — message content is `string | null`
+   * OpenGradient TEE chat accepts text only, message content is `string | null`
    * on the wire. No media URLs are fetched or supported natively.
    */
   readonly supportedUrls: Record<string, RegExp[]> = {};
@@ -393,7 +393,7 @@ export class OpenGradientChatLanguageModel implements LanguageModelV3 {
       type: 'compatibility',
       feature: 'json-object',
       details:
-        'responseFormat json without a schema maps to json_object, which Anthropic models reject — provide a schema',
+        'responseFormat json without a schema maps to json_object, which Anthropic models reject, provide a schema',
     });
     return { type: 'json_object' };
   }

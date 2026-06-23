@@ -1,5 +1,5 @@
 /**
- * Phase 2 example — non-streaming text generation via the AI SDK.
+ * Phase 2 example, non-streaming text generation via the AI SDK.
  *
  * Spends real OPG on Base. Prerequisites:
  *   - wallet funded with OPG + a little ETH on Base
@@ -11,7 +11,7 @@
  * Note: the published TS SDK's default registry currently has no active TEE, so
  * we pass `llmServerUrl`. The list below is the set of active TEEs discovered
  * from the current on-chain registry; the provider fails over across them in
- * order. IPs rotate — override via OPENGRADIENT_LLM_SERVER_URL (comma-separated)
+ * order. IPs rotate, override via OPENGRADIENT_LLM_SERVER_URL (comma-separated)
  * or re-discover if all fail.
  */
 import { generateText } from 'ai';

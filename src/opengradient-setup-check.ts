@@ -15,7 +15,7 @@ import {
 } from 'opengradient-sdk';
 
 /**
- * Canonical Permit2 contract — deployed at the same address on every EVM chain
+ * Canonical Permit2 contract, deployed at the same address on every EVM chain
  * (deterministic CREATE2). Hardcoded to avoid a dependency on the SDK's transitive
  * `@x402/evm`.
  */
@@ -25,7 +25,7 @@ const PERMIT2_ADDRESS: Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 const OPG_DECIMALS = 18;
 
 /**
- * Default minimum Permit2 allowance for `ready` — matches the canonical setup call
+ * Default minimum Permit2 allowance for `ready`, matches the canonical setup call
  * `ensureOpgApproval(account, 5, 100)`, which keeps the allowance at/above 5 OPG.
  */
 const DEFAULT_MIN_ALLOWANCE = parseUnits('5', OPG_DECIMALS);
@@ -39,7 +39,7 @@ export interface OpenGradientSetupReport {
   address: Address;
   /** OPG balance on Base mainnet (atomic units). */
   opgBalance: bigint;
-  /** Native ETH balance on Base — gas for the one-time Permit2 approval. */
+  /** Native ETH balance on Base, gas for the one-time Permit2 approval. */
   ethBalance: bigint;
   /** OPG allowance granted to Permit2 (atomic units). */
   permit2Allowance: bigint;
@@ -82,7 +82,7 @@ export interface CheckOpenGradientSetupOptions {
  * Read-only preflight: inspect a wallet's OPG balance, ETH-for-gas, and Permit2
  * allowance on Base so you can fix funding/approval before paying for inference.
  *
- * **Sends no transactions.** It never calls `ensureOpgApproval` or any write — when an
+ * **Sends no transactions.** It never calls `ensureOpgApproval` or any write, when an
  * approval is needed it tells you to run it yourself.
  *
  * ```ts
@@ -127,7 +127,7 @@ export async function checkOpenGradientSetup(
   const issues: string[] = [];
   if (opgBalance === 0n) {
     issues.push(
-      `No OPG on Base for ${address}. Fund the wallet before inference — see ${DEFAULT_HUB_SIGNUP_URL}.`,
+      `No OPG on Base for ${address}. Fund the wallet before inference, see ${DEFAULT_HUB_SIGNUP_URL}.`,
     );
   }
   const minOpg = formatUnits(minAllowance, OPG_DECIMALS);
@@ -140,13 +140,13 @@ export async function checkOpenGradientSetup(
     if (opgBalance > 0n && opgBalance < minAllowance) {
       issues.push(
         `OPG balance is ${formatUnits(opgBalance, OPG_DECIMALS)} OPG, below the ` +
-          `${minOpg} OPG that the approval needs — ` +
+          `${minOpg} OPG that the approval needs, ` +
           'fund more OPG before approving or `ensureOpgApproval` will fail.',
       );
     }
     if (ethBalance === 0n) {
       issues.push(
-        'No ETH on Base for gas — the one-time Permit2 approval tx will fail. Fund the wallet with a little ETH.',
+        'No ETH on Base for gas, the one-time Permit2 approval tx will fail. Fund the wallet with a little ETH.',
       );
     }
   }

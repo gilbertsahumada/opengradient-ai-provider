@@ -264,7 +264,7 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
       .mockResolvedValue({ done: true, value: undefined });
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const iterator: AsyncIterator<StreamChunk> = {
-      // never resolves — cancellation happens while awaiting the first chunk
+      // never resolves, cancellation happens while awaiting the first chunk
       next: () => new Promise<IteratorResult<StreamChunk>>(() => {}),
       return: returnSpy as never,
     };
@@ -303,7 +303,7 @@ describe('OpenGradientChatLanguageModel.doStream', () => {
     };
 
     const { stream } = await model(client).doStream(baseCall);
-    void stream.cancel(); // don't await — buggy version blocks on return()
+    void stream.cancel(); // don't await, buggy version blocks on return()
     await new Promise((r) => setTimeout(r, 20));
 
     expect(closeSpy).toHaveBeenCalledTimes(1);

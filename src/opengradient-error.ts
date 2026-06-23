@@ -4,7 +4,7 @@ import { DEFAULT_HUB_SIGNUP_URL, OpenGradientError } from 'opengradient-sdk';
 /**
  * Map an error thrown by the OpenGradient SDK into an AI SDK error.
  *
- * Where the cause is knowable, the mapped error is made actionable — it tells the
+ * Where the cause is knowable, the mapped error is made actionable, it tells the
  * caller what to do (fund OPG, grant Permit2 allowance, provide a JSON schema)
  * rather than surfacing the raw upstream message alone. `OpenGradientError` carries
  * no URL, so a best-effort `url` is passed for `APICallError`'s required field.
@@ -59,7 +59,7 @@ function actionableMessage(
 ): string {
   if (statusCode === 402) {
     return (
-      `${rawMessage} — payment rejected. Check your OPG balance and Permit2 ` +
+      `${rawMessage}, payment rejected. Check your OPG balance and Permit2 ` +
       'allowance on Base: call `checkOpenGradientSetup()` to diagnose, then run ' +
       '`ensureOpgApproval(account, 5, 100)` once if the allowance is 0. ' +
       `Fund OPG at ${DEFAULT_HUB_SIGNUP_URL}.`

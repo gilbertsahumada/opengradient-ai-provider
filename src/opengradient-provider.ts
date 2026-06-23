@@ -28,12 +28,12 @@ export interface OpenGradientProvider extends ProviderV3 {
 /**
  * Create an OpenGradient provider instance.
  *
- * `settings` is optional — when omitted, the private key is resolved lazily from
+ * `settings` is optional, when omitted, the private key is resolved lazily from
  * `OPENGRADIENT_PRIVATE_KEY` at call time, so `createOpenGradient()` never throws
  * at construction.
  *
  * The wallet must hold OPG on Base mainnet and have granted Permit2 approval
- * (`ensureOpgApproval` from `opengradient-sdk`) before any inference call — that
+ * (`ensureOpgApproval` from `opengradient-sdk`) before any inference call, that
  * is a documented prerequisite and is intentionally NOT performed here, since it
  * sends on-chain transactions.
  */
@@ -73,7 +73,7 @@ export function createOpenGradient(
  * Default OpenGradient provider instance. Resolves `OPENGRADIENT_PRIVATE_KEY`
  * from the environment lazily on first call, so importing it never throws.
  *
- * **Server-only** — it carries an EVM private key that controls real funds.
+ * **Server-only**, it carries an EVM private key that controls real funds.
  * Never bundle it into client-side code. For custom configuration, use
  * {@link createOpenGradient}.
  */

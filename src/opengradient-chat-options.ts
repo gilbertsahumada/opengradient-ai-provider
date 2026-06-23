@@ -12,7 +12,7 @@ export type OpenGradientChatModelId = TEE_LLM | (string & {});
  * Provider-level configuration for the OpenGradient provider.
  *
  * Mirrors the OpenGradient SDK's `ClientConfig`. Unlike most AI SDK providers
- * there is **no base URL / API key** — the TEE endpoint and x402 payment flow
+ * there is **no base URL / API key**, the TEE endpoint and x402 payment flow
  * are resolved by the SDK from an on-chain registry, authenticated with an EVM
  * private key.
  *
@@ -42,13 +42,13 @@ export interface OpenGradientProviderSettings {
    * Pass an array to fail over across endpoints in order: if one is unreachable
    * the next is tried. Falls back to `OPENGRADIENT_LLM_SERVER_URL`
    * (comma-separated for a list). This is an interim measure while the SDK's
-   * default registry is stale — see the note in the language model.
+   * default registry is stale, see the note in the language model.
    */
   llmServerUrl?: string | string[];
 
   /**
    * Maximum payment per request, in atomic units (USDC has 6 decimals).
-   * Accepted and passed to the SDK, but **not currently enforced upstream** —
+   * Accepted and passed to the SDK, but **not currently enforced upstream**,
    * do not treat it as a spend cap.
    */
   maxPaymentValue?: bigint;

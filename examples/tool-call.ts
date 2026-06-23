@@ -1,5 +1,5 @@
 /**
- * Phase 4 example — tool calling via the AI SDK.
+ * Phase 4 example, tool calling via the AI SDK.
  *
  * Spends real OPG on Base. Prerequisites:
  *   - wallet funded with OPG + a little ETH on Base
@@ -8,7 +8,7 @@
  * Run:
  *   npx tsx --env-file=.env examples/tool-call.ts
  *
- * Note: streaming + tools is degraded upstream — `streamText` with tools goes
+ * Note: streaming + tools is degraded upstream, `streamText` with tools goes
  * non-streaming inside the SDK and surfaces the tool call in one shot (arguments
  * are not token-streamed).
  */
