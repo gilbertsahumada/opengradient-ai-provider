@@ -25,6 +25,22 @@ const opengradient = createOpenGradient({
     process.env.OPENGRADIENT_LLM_SERVER_URL?.split(',') ?? TEE_ENDPOINTS,
 });
 
+interface GeocodeResponse {
+  results?: Array<{
+    name: string;
+    country?: string;
+    latitude: number;
+    longitude: number;
+  }>;
+}
+
+interface ForecastResponse {
+  current?: {
+    temperature_2m?: number;
+    time?: string;
+  };
+}
+
 const tools = {
   get_weather: tool({
     description: 'Get the current temperature for a city, in Celsius.',
@@ -34,15 +50,15 @@ const tools = {
       required: ['city'],
     }),
     execute: async ({ city }) => {
-      const geo = await fetch(
+      const geo = (await fetch(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`,
-      ).then((r) => r.json());
+      ).then((r) => r.json())) as GeocodeResponse;
       const place = geo?.results?.[0];
       if (!place) return { error: `City not found: ${city}` };
 
-      const wx = await fetch(
+      const wx = (await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m`,
-      ).then((r) => r.json());
+      ).then((r) => r.json())) as ForecastResponse;
 
       return {
         city: place.name,

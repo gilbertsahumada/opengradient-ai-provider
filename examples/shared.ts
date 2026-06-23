@@ -8,7 +8,7 @@
  * with failover. The published SDK's default registry currently returns no active
  * TEEs, so endpoints are passed explicitly here (this bypasses on-chain TLS
  * pinning and is interim). IPs rotate, re-query the registry if all become
- * unreachable (preflight/check-payment-path.ts does this).
+ * unreachable.
  */
 export const TEE_ENDPOINTS = [
   'https://13.59.207.188',

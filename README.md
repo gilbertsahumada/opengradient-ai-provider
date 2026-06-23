@@ -21,11 +21,18 @@ npm install opengradient-ai-provider ai
 import { createOpenGradient } from 'opengradient-ai-provider';
 import { generateText } from 'ai';
 
+const llmServerUrl = process.env.OPENGRADIENT_LLM_SERVER_URL;
+if (!llmServerUrl) {
+  throw new Error(
+    'Set OPENGRADIENT_LLM_SERVER_URL; see "TEE endpoints" below.',
+  );
+}
+
 const opengradient = createOpenGradient({
   // server-only; falls back to OPENGRADIENT_PRIVATE_KEY when omitted
   privateKey: process.env.OPENGRADIENT_PRIVATE_KEY,
   // see "TEE endpoints" below, currently required
-  llmServerUrl: process.env.OPENGRADIENT_LLM_SERVER_URL?.split(','),
+  llmServerUrl: llmServerUrl.split(','),
 });
 
 const { text, providerMetadata } = await generateText({
@@ -155,8 +162,9 @@ A few things worth knowing:
   entirely.
 - The Base RPC can only be changed through the `BASE_MAINNET_RPC` environment
   variable. The SDK reads it directly and does not accept it through provider
-  settings, so there is no `baseRpcUrl` option. `checkOpenGradientSetup` takes its
-  own `rpcUrl` for the Base reads it performs.
+  settings, so there is no provider-level `baseRpcUrl` option.
+  `checkOpenGradientSetup` takes its own `baseRpcUrl` for the Base reads it
+  performs.
 - **Mainnet only, by OpenGradient's design.** The OPG token and the x402 payment
   rails are deployed on Base mainnet and hardcoded in the SDK (`BASE_OPG_ADDRESS`
   is a fixed Base address). There is no testnet OPG or testnet payment path, so
@@ -206,13 +214,14 @@ const account = privateKeyToAccount(
 const report = await checkOpenGradientSetup(account);
 if (!report.ready) {
   console.error(report.issues.join('\n'));
-  // e.g. "Permit2 allowance for OPG is 0. Run ensureOpgApproval(account, 5, 100)…"
+  // e.g. "Permit2 allowance for OPG is 0 OPG. Run ensureOpgApproval(account, 5, 100)..."
 }
 ```
 
-It accepts a viem `Account` or a plain address, and an optional `{ rpcUrl }` for a
-custom **Base** RPC. Inference errors are likewise diagnostic: a `402` tells you to
-check OPG funds and allowance, not just that payment failed.
+It accepts a viem `Account` or a plain address, plus optional `{ baseRpcUrl }` for
+a custom **Base** RPC and `{ minAllowance }` in raw atomic units. Inference errors
+are likewise diagnostic: a `402` tells you to check OPG funds and allowance, not
+just that payment failed.
 
 ## Limitations
 
