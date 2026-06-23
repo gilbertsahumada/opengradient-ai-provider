@@ -5,7 +5,6 @@ name: Publish to npm
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,11 +21,21 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs npm >= 11.5.1; node 22 ships an older npm.
-      - run: npm install -g npm@latest
+      # Trusted publishing needs npm >= 11.5.1; pin it for reproducible releases.
+      - run: npm install -g npm@11.5.1
+
+      - run: npm --version
 
       - run: npm ci
 
-      # prepublishOnly runs lint + typecheck + test + build first.
+      - name: Check release tag matches package version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "${{ github.event.release.tag_name }}" != "v${VERSION}" ]; then
+            echo "Release tag ${{ github.event.release.tag_name }} does not match package.json version v${VERSION}"
+            exit 1
+          fi
+
+      # prepublishOnly runs the full verify gate first.
       # Provenance is generated from the OIDC token; no token is passed.
       - run: npm publish --provenance
